@@ -1,0 +1,174 @@
+This file lists and suggests testable syscall return values (as well as a suggestion of why the syscall in question might be interesting)...
+
+Concerns: 
+ - We may need to also preempt changes to by-reference arguments, such as stat/fstat's buf.
+ - Also will need to set errno to get truly accurate results, and errno is thread-local.
+ - I have aimed (when listing errno-s below, etc) to select errors that could feasibly occur independently of arguments to these system calls--to inject errors like 'bad file descriptor' on a call seems sort of like an 'unfair' test since a program might make sure its file descriptor is valid before making the call (and so can't reasonably be expected to check for that error case).
+
+----
+mmap
+----
+This sycall "creates a new mapping in the virtual address space of the calling process". The man page implies this is for mapping files or devices into memory, but I believe mmap is one of two major syscalls for grabbing memory when performing malloc.
+
+Normal return value: Pointer to mapped memory.
+Atypical but valid return value: MAP_FAILED, a constant which is equal to ((void*) -1).
+Interesting error codes (set errno) in the above circumstance:
+   ENOMEM (Indicates memory unavailable)
+   ENODEV (Indicate fs doesn't support memory mapping)
+   EPERM  (File seal prevented operation)
+   ENFILE (System limit on number of open files is hit)
+   EAGAIN (File is locked, or too much memory was locked)
+
+------
+munmap
+------
+The syscall that acts as the undo/inverse of mmap.
+
+Normal return value: 0
+Atypical but valid return value: -1
+Errno-s are the same set as for mmap.
+
+*It may not be very reasonable to expect the return value of this to be checked; for example, how often are programs expected to check the success of a free() call?
+
+----
+read
+----
+This sycall reads bytes from a file descriptor.
+
+Normal return value: Number of bytes read.
+Atypical but valid return value: -1
+Error codes (set errno) of interest:
+      EIO (Indicates I/O error)
+      EINTR (Indicates call was interrupted by a signal before reading any data)
+
+---
+brk
+---
+A syscall for changing the size of a program's data segment. brk or sbrk are also often used for implementing memory allocators, including in some cases malloc.
+
+Normal return value: 0
+Atypical but valid return value: -1
+Errno-s if -1 returned: ENOMEM
+
+----
+sbrk
+----
+A companion to brk that increments insetad of setting to a specific value.
+
+Normal return value: Pointer to previous program break (start of newly-allocated mem if increased in size from the sbrk call)
+Atypical but valid return value: ((void*) -1)
+In atypical case, errno is set to: ENOMEM
+
+-----
+fsync
+-----
+Syncs the state of the provided file descriptor to disk.
+
+Normal return value: 0
+Atypical but valid return value: -1
+In atypical case errno is set. Interesting values:
+   EIO (Error occurred during synchronization)
+
+----------
+fork/clone
+----------
+Creates a new process by duplicating the current process.
+
+Normal return value: PID of child process (in the parent; it's the thread ID for clone if that's different), 0 (in the child; fork only).
+Atypical but valid return code: -1 returned.
+Errno values:
+   EAGAIN (System-imposed limit on thread count was hit)
+   ENOMEM (Memory for new process couldn't be allocated)
+   ENOSYS (fork is not supported on this platform)
+
+*This could be hard to check, since we would ideally avert the actual spawning of the new process.
+
+----------
+stat/fstat
+----------
+Gets info concerning files.
+
+Normal Return value: 0 (and the buf pointed to by the appropriate argument is filled with data)
+Atypical but valid return value: -1.
+Errno values:
+    EACCES (Search permission for path denied)
+    ENOMEM (Out of memory)
+
+*Note: to see if a program is actually checking the output, we would also need to prempt the filling of buf with data by zeroing or invalidating it somehow.    
+
+-----
+ioctl
+-----
+Modifies properties of device params underlying special files.
+
+Normal return value: 0 (sometimes some other non-negative value depending on the call specifics)
+Atypical but valid return value: -1
+Errno values:
+    EFAULT (Memory area referenced not accessible)
+
+*Kind of iffy here; there don't seem to be any error cases that make sense to occur independently of the call arguments.
+   
+----------
+open/creat
+----------
+Opens or creates a file.
+
+Normal return value: The new file descriptor.
+Atypical but valid return value: -1
+Errno values:
+    EACCES (Requested access not allowed)
+    EINTR (Call interrupted by signal handler)
+    ENFILE (System limit on number of open files was hit)
+    ENOMEM (Insufficient kernel memory available)
+    ENOSPC (No room for a new file to be created)
+
+------
+statfs
+------
+Gets filesystem statistics.
+
+Normal return value: 0 (and buffer is filled with data)
+Atypical but valid return value: -1
+Errno values:
+    EINTR (Call interrupted by a signal)
+    EIO (An I/O error occurred during the fs read)
+    ENOMEM (Insufficient kernel memory)
+    ENOSYS (The fs doesn't support this call)
+
+----
+poll
+----
+Waits for an event on a file descriptor
+
+Normal return value: # of descriptors with events/errors reported.
+Atypical but valies return values: 0 (call times out w/ no file descriptors ready) or -1 (error).
+Errno-s (for error case)
+    EINTR (interrupted by signal)
+    ENOMEM (insufficient memory to allocate fd tables)
+
+----------
+pipe/pipe2
+----------
+Creates a unidirectional data channel between processes.
+
+Normal return value: 0 (and the pipefd array values are set)
+Atypical but valid return values: -1
+Errnos:
+    EFAULT (pipefd is not valid.)
+    EMFILE (Too many fd-s are used by the process at the moment)
+    ENFILE (System limit on number of open files is hit)
+
+-----
+lseek
+-----
+Repositions an open file's current offset.
+
+Normal return value: Resulting offset from start of file in bytes.
+Atypical but valid return values: ((off_t) -1)
+Errnos:
+    <None that make sense for arbitrary cases>
+
+
+
+
+
