@@ -48,14 +48,14 @@ int main(int argc, char *argv[]) {
   int entering = 1;
   struct user_regs_struct regs;
   int pid = fork();
-
   if ( !pid ) {
     ptrace( PTRACE_TRACEME, 0, 0, 0 );
     execlp( target, target, NULL );
+    printf ("ddddafsdkdaskbf\n");
   }
   else {
     wait( &status );
-
+    printf ("dddd\n");
     while ( 1 ) {
       ptrace( PTRACE_SYSCALL, pid, 0, 0 );
 
@@ -67,7 +67,7 @@ int main(int argc, char *argv[]) {
       
       // get syscall number
       syscall_n = regs.orig_rax;
-      //printf("Syscall is %d\n", syscall_n);
+      printf("Syscall is %d\n", syscall_n);
      
       // only intercept the syscall we want to intercept
       if ( syscall_n == target_syscall ) {
@@ -76,6 +76,7 @@ int main(int argc, char *argv[]) {
           entering = 0;
         }
         else {
+
           ptrace( PTRACE_GETREGS, pid, 0, &regs );
           //printf("Target syscall %d caught.\n", target_syscall);
           //printf("Current return value is 0x%016llx.\n", regs.rax);
