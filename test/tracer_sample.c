@@ -13,21 +13,21 @@
 
 #define MAX_TARGET_LEN 255
 
-//#define TARGET "/home/vagrant/lab3/test/target_sample"
-//#define NEW_UID 0
-// syscall SYS_getuid == 102
-//#define TARGET_SYSCALL 102
+#define NUM_ARGS 5
 
-int target_syscall;
-long long int retval;
-double prob;
-char target[MAX_TARGET_LEN + 1];
+void print_usage_and_exit() {
+  printf("Usage: tracer_sample signum retval prob target\n");
+  printf("    signum: Signal # to intercept\n");
+  printf("    retval: Return value to insert\n");
+  printf("      prob: Probability of fault insertion\n");
+  printf("    target: Path to target executable\n");
+  exit(1);
+}
 
 int main(int argc, char *argv[]) {
-  if(argc != 5) {
-    printf("Insufficient number of argument.\n");
-    //print_usage();
-    return 1;
+  if(argc != NUM_ARGS) {
+    printf("Wrong number of arguments: %d for %d.\n", argc, NUM_ARGS);
+    print_usage_and_exit();
   }
 
   if(strlen(argv[4]) > MAX_TARGET_LEN) {
@@ -35,9 +35,10 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  target_syscall = atoi(argv[1]);
-  retval = atoll(argv[2]);
-  prob = atof(argv[3]);
+  int target_syscall = atoi(argv[1]);
+  long long int retval = atoll(argv[2]);
+  double prob = atof(argv[3]);
+  char target[MAX_TARGET_LEN + 1];
   strncpy(target, argv[4], MAX_TARGET_LEN);
 
   srand(time(NULL));
