@@ -19,7 +19,7 @@ void print_usage_and_exit() {
   printf("Usage: tracer_sample signum retval prob target\n");
   printf("    signum: Signal # to intercept\n");
   printf("    retval: Return value to insert\n");
-  printf("      prob: Probability of fault insertion\n");
+  printf("    num_to_skip: Number of syscalls to skip before injection\n");
   printf("    target: Path to target executable\n");
   exit(1);
 }
@@ -37,15 +37,14 @@ int main(int argc, char *argv[]) {
 
   int target_syscall = atoi(argv[1]);
   long long int retval = atoll(argv[2]);
-  double prob = atof(argv[3]);
+  long long int num_to_skip = atoll(argv[3]);
   char target[MAX_TARGET_LEN + 1];
   strncpy(target, argv[4], MAX_TARGET_LEN);
-
-  srand(time(NULL));
-
+  
   int status = 0;
   int syscall_n = 0;
   int entering = 1;
+  long long int syscall_count = 0;
   struct user_regs_struct regs;
   int pid = fork();
 
@@ -55,10 +54,9 @@ int main(int argc, char *argv[]) {
   }
   else {
     wait( &status );
-
+    
     while ( 1 ) {
       ptrace( PTRACE_SYSCALL, pid, 0, 0 );
-
       wait( &status );
 
       if ( WIFEXITED( status ) ) break;
@@ -67,8 +65,7 @@ int main(int argc, char *argv[]) {
       
       // get syscall number
       syscall_n = regs.orig_rax;
-      //printf("Syscall is %d\n", syscall_n);
-     
+       
       // only intercept the syscall we want to intercept
       if ( syscall_n == target_syscall ) {
         if ( entering ) {
@@ -76,18 +73,19 @@ int main(int argc, char *argv[]) {
           entering = 0;
         }
         else {
-          ptrace( PTRACE_GETREGS, pid, 0, &regs );
-          //printf("Target syscall %d caught.\n", target_syscall);
-          //printf("Current return value is 0x%016llx.\n", regs.rax);
-          //printf("Type the return value you want to change in hex.\n");
-          //scanf("%llx", &regs.rax);
-
-          if(((double)rand() / RAND_MAX) < prob)
+          syscall_count++;
+          if (syscall_count > num_to_skip) {
+            ptrace( PTRACE_GETREGS, pid, 0, &regs );
+            //printf("Target syscall %d caught.\n", target_syscall);
+            //printf("Current return value is 0x%016llx.\n", regs.rax);
+            //printf("Type the return value you want to change in hex.\n");
+            //scanf("%llx", &regs.rax);
             regs.rax = retval;
 
-          // set the return value of the syscall
-          ptrace( PTRACE_SETREGS, pid, 0, &regs );
-          entering = 1;
+            // set the return value of the syscall
+            ptrace( PTRACE_SETREGS, pid, 0, &regs );
+            entering = 1;
+          }
         }
       }
     }
