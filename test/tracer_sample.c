@@ -54,11 +54,13 @@ int single_injection_run(int* target_syscalls, int num_syscalls, long long int* 
   int syscall_n = 0;
   int entering = 1;
   int entry_intercepted = 0;
+  int intercepted_retval = 0;
   long long int syscall_count = 0;
   struct user_regs_struct regs;
   int pid = fork();
 
   if ( !pid ) {
+    printf("The child is running\n");
     ptrace( PTRACE_TRACEME, 0, 0, 0 );
     execlp( target, target, NULL );
   }
@@ -98,7 +100,8 @@ int single_injection_run(int* target_syscalls, int num_syscalls, long long int* 
             // set it to a dummy syscall getpid
 	          regs.orig_rax = 39;
             ptrace( PTRACE_SETREGS, pid, 0, &regs );
-            entry_intercepted = 1;            
+            entry_intercepted = 1;      
+            intercepted_retval = retvals[syscall_idx - target_syscalls];
           }
           
         }
@@ -107,7 +110,13 @@ int single_injection_run(int* target_syscalls, int num_syscalls, long long int* 
           entry_intercepted = 0;
           if (syscall_count > num_to_skip) {
             ptrace( PTRACE_GETREGS, pid, 0, &regs );
-	          regs.rax = retvals[syscall_idx - target_syscalls];
+            //printf("About to segfault\n");
+            if ( fail_on_entry ) {
+              regs.rax = intercepted_retval;
+            } else {
+              regs.rax = retvals[syscall_idx - target_syscalls];
+            }
+            //printf("Didn't segfault!\n");
             // set the return value of the syscall
             ptrace( PTRACE_SETREGS, pid, 0, &regs );
           }
