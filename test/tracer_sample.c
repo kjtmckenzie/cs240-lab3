@@ -65,7 +65,7 @@ int single_injection_run(int target_syscall, long long int retval, int fail_on_e
         sleep(1);
         loop_counter ++; 
         if (loop_counter > 100) {
-          printf("Ptrace is taking too long on child %s for syscall %d\n", target, target_syscall);
+          printf("TIMEOUT: Ptrace is taking too long on %s for syscall %d\n", target, target_syscall);
           exit(-1);
         }
       }

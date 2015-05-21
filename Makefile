@@ -1,23 +1,14 @@
-AR = $(CROSS_COMPILE)ar
-CC = $(CROSS_COMPILE)gcc$(CC_VERSION)
+CFLAGS = -std=c99
 
-OBJ_DIR = obj
-SRC_DIR = src
-BIN_DIR = bin
-LIB_DIR = lib
-TEST_DIR = test/src
+all: 
+	# for the test files
+	gcc $(CFLAGS) test/target_sample.c -o bin/target_sample
+	gcc $(CFLAGS) test/tracer_sample.c -o bin/tracer_sample
+	gcc $(CFLAGS) -static test/malloc_target.c -o bin/malloc_target
+	gcc $(CFLAGS) test/malloc_injector.c -o bin/malloc_injector
 
-LDFLAGS = -ggdb
-ARFLAGS = -r
-CCFLAGS = -ggdb -Wall -Wextra -Werror -Wswitch-default -Wwrite-strings \
-	-O3 -Iinclude -Itest/include -std=gnu99 $(CFLAGS)
-
-# TBD
-
-all: $(LIB)
-
-test: $(TEST_BIN)
-	@$(TEST_BIN)
+	# for breakfast file
+	gcc -Iinclude src/injector.c src/breakfast.c -o bin/injector
 
 clean:
-	rm -rf $(OBJ_DIR) $(BIN_DIR) $(LIB_DIR) $(SUBMIT_TAR)
+	rm -rf bin/target_sample bin/tracer_sample bin/malloc_target bin/malloc_injector
