@@ -68,6 +68,27 @@ Normal return value: 0
 Atypical but valid return value: -1
 In atypical case errno is set. Interesting values:
    EIO (Error occurred during synchronization)
+	 
+	 
+Notes on fsync:
+fsync flushes a file (using the input FD) to disk.  On EXT4 based newer
+Linux systems, fsync can be used to reliably flush a file to disk.  On 
+many earlier systems, fsync could just flush the file to the disks buffers,
+but that could fail if the disk lost power.  
+	 
+It's also possible for a file's fsync to succeed, but the file system
+might still be corrupted if the file's directory's fsync fails.  Both need
+to succeed for true file durability.  If we were to only fsync only on 
+directory fsyncs (as a separate test from above), we can test if renames
+and file deletions cause corruption in the file system.
+
+To capture fsyncs only on directories, we can capture all FDs that fsync is
+called with (see below) and then do a stat on the FD to determine if it's a directory.  Only then would we intercept and insert an error code.
+
+from parent: ptrace(PTRACE_PEEKUSER, child, 4 * EBX, NULL);
+This will return the FD of the file being fsynced.
+
+http://blog.httrack.com/blog/2013/11/15/everything-you-always-wanted-to-know-about-fsync/
 
 ----------
 fork/clone
