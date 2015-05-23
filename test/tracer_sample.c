@@ -58,7 +58,6 @@ int single_injection_run(int* target_syscalls, int num_syscalls, long long int* 
   long long int syscall_count = 0;
   struct user_regs_struct regs;
   int pid = fork();
-
   if ( !pid ) {
     printf("The child is running\n");
     ptrace( PTRACE_TRACEME, 0, 0, 0 );
@@ -73,11 +72,20 @@ int single_injection_run(int* target_syscalls, int num_syscalls, long long int* 
     printf("with num_to_skip %lld\n", num_to_skip);
     wait( &status );
 
+    size_t loop_counter = 0; 
     while ( 1 ) {
       ptrace( PTRACE_SYSCALL, pid, 0, 0 );
       wait( &status );
 
       if ( WIFEXITED( status ) ) break;
+      else { 
+        sleep(1);
+        loop_counter ++; 
+        if (loop_counter > 100) {
+          printf("TIMEOUT: Ptrace is taking too long on %s for syscall %d\n", target, syscall_n);
+          exit(-1);
+        }
+      }
 
       ptrace( PTRACE_GETREGS, pid, 0, &regs );
 
@@ -87,7 +95,6 @@ int single_injection_run(int* target_syscalls, int num_syscalls, long long int* 
       int* syscall_idx = NULL;
       
       size_t n_syscalls_idx = num_syscalls;
-
       // only intercept the syscall we want to intercept
       if ( (syscall_idx = lfind(&syscall_n, target_syscalls, &n_syscalls_idx, sizeof(int), cmp_sys_num)) || entry_intercepted ) {
         if ( entering ) {

@@ -124,7 +124,9 @@ int main(int argc, char *argv[]) {
     // Parent: trace child and inject breakpoints
     printf("Parent: attaching breakfast\n");
     fflush(stdout);
-    breakfast_attach(pid);
+    //breakfast_attach(pid);
+
+    waitpid(pid, NULL, 0);
 
     // Set breakpoint at malloc_addr
     struct breakpoint *malloc_break = breakfast_break(pid, (target_addr_t) addr);
