@@ -12,7 +12,8 @@
 #include <time.h>
 #include <search.h>
 
-#define MAX_TARGET_LEN 255
+#define MAX_TARGET_LEN 1024
+#define MAX_TARGET_ARGS 64
 
 #define MAX_ARGS 7
 #define MIN_ARGS 5
@@ -24,7 +25,6 @@
 #define MAX_SYSCALLS 430
 
 #define INPUT_LIST_DELIM ","
-
 //A return value indicating we reached past the end of executable. Chosen larger than 256 so that it 
 //won't clash with most POSIX exit codes.
 #define END_OF_EXECUTABLE 400
@@ -36,7 +36,7 @@ void print_usage_and_exit() {
   printf("    fail_on_entry: 1 to fail syscall on entry or 0 to fail syscall after it has returned\n");
   printf("    num_to_skip: Number of syscalls to skip before injection\n");
   printf("    num_of_runs: Runs in multi-run mode, skipping first 0 syscalls before fault injection, then 1, 2, etc.. up to num_of_runs\n");
-  printf("    target: Path to target executable\n");
+  printf("    target: Path to target executable. Include any command-line args to run with\n");
   printf("Default behavior for skip/runs is to run until no faults are injected.\n");
   exit(1);
 }
@@ -49,7 +49,7 @@ int cmp_sys_num(const void* num_a, const void* num_b) {
 /* Perform a single run of tracing, skipping the first num_to_skip syscalls and injecting a fault in all those 
    that follow. */
 int single_injection_run(int* target_syscalls, int num_syscalls, long long int* retvals,
-			 int fail_on_entry, long long int num_to_skip, char* target) {
+			 int fail_on_entry, long long int num_to_skip, char* target, char** args) {
   int status = 0;
   int syscall_n = 0;
   int entering = 1;
@@ -62,7 +62,7 @@ int single_injection_run(int* target_syscalls, int num_syscalls, long long int* 
   if ( !pid ) {
     printf("The child is running\n");
     ptrace( PTRACE_TRACEME, 0, 0, 0 );
-    execlp( target, target, NULL );
+    execvp( target, args );
   }
   else {
     // Print status message concerning the run.
@@ -134,12 +134,12 @@ int single_injection_run(int* target_syscalls, int num_syscalls, long long int* 
 /* Run injections progressing from faulting the first syscall, to the second, third, etc... until 
    the runs have faulted every syscall in the execution once. */
 int full_injection_run(int* target_syscalls, int num_syscalls, long long int* retvals, 
-		       int fail_on_entry, char* target) {
+		       int fail_on_entry, char* target, char** args) {
   long long int current_skip = 0;
   
   int res = 0;
   while (res == 0) {
-    res = single_injection_run(target_syscalls, num_syscalls, retvals, fail_on_entry, current_skip, target);
+    res = single_injection_run(target_syscalls, num_syscalls, retvals, fail_on_entry, current_skip, target, args);
     current_skip++;
   }
   return res;
@@ -148,9 +148,10 @@ int full_injection_run(int* target_syscalls, int num_syscalls, long long int* re
 /* Run injections progressing from faulting the first syscall to the second, third, etc... until
    either all syscall in the execution have been faulted or all syscalls up to the input num_ops have been 
    faulted, whichever comes first. */
-int multi_injection_run(int* target_syscalls, int num_syscalls, long long int* retvals, int fail_on_entry, long long int num_ops, char* target) {
+int multi_injection_run(int* target_syscalls, int num_syscalls, long long int* retvals, 
+			int fail_on_entry, long long int num_ops, char* target, char** args) {
   for (long long int i = 0; i <= num_ops; i++) {
-    int res = single_injection_run(target_syscalls, num_syscalls, retvals, fail_on_entry, i, target);
+    int res = single_injection_run(target_syscalls, num_syscalls, retvals, fail_on_entry, i, target, args);
     if (res) { //End if an error w.r.t the injector's end occurs or we reach past the end of the executable.
       return res;
     }
@@ -212,6 +213,31 @@ int parse_target_syscall_args(int** target_syscalls, int* num_syscalls, long lon
   return 0;
 }
 
+/* Parses the target command, extracting arguments as individual strings and allocating
+ * each string as well as the array to hold them. Returns the number of arguments. */
+int parse_target_command(char* cmd, char** target_name, char*** target_args) {
+  char target_buf[MAX_TARGET_LEN];
+  char* targ_buf[MAX_TARGET_ARGS];
+  strcpy(target_buf, cmd);
+  
+  //Extract and save a copy of the target executable path.
+  char* cur_arg = strtok(target_buf, " ");
+  *target_name = strdup(cur_arg);
+  targ_buf[0] = strdup(*target_name);
+
+  int i = 1;
+  
+  while ((cur_arg = strtok(NULL, " "))) {
+    targ_buf[i] = strdup(cur_arg);
+    i++;
+  }
+
+  *target_args = malloc(sizeof(char*) * i);
+  memcpy(*target_args, targ_buf, sizeof(char*) * i);
+
+  return i;
+}
+
 /* Launch the program. */
 int main(int argc, char *argv[]) {
   // Validate argc
@@ -227,7 +253,7 @@ int main(int argc, char *argv[]) {
     target_inp = argv[6];
   }
   if(strlen(target_inp) > MAX_TARGET_LEN) {
-    printf("Target name cannot be longer than 255.\n");
+    printf("Target command cannot be longer than 1024.\n");
     return 1;
   }
 
@@ -257,23 +283,29 @@ int main(int argc, char *argv[]) {
   }
 
   // Create a buffer to store the target name.
-  char target[strlen(target_inp) + 1];
-  strcpy(target, target_inp);
-
+  char* target;
+  char** args;
+  int nargs = parse_target_command(target_inp, &target, &args);
+  
   int rval = 0;
 
   // Dispatch the runs.
   if (mode == FULL_RUN_MODE) {
-    rval = full_injection_run(target_syscalls, num_syscalls, retvals, fail_on_entry, target);
+    rval = full_injection_run(target_syscalls, num_syscalls, retvals, fail_on_entry, target, args);
   } else if (mode == RUN_MODE) {
-    rval = multi_injection_run(target_syscalls, num_syscalls, retvals, fail_on_entry, num_ops, target);
+    rval = multi_injection_run(target_syscalls, num_syscalls, retvals, fail_on_entry, num_ops, target, args);
   } else {
-    rval = single_injection_run(target_syscalls, num_syscalls, retvals, fail_on_entry, num_ops, target);
+    rval = single_injection_run(target_syscalls, num_syscalls, retvals, fail_on_entry, num_ops, target, args);
   }
 
   //Free dynamic memory used for syscall numbers and injected values.
   free(target_syscalls);
   free(retvals);
+  free(target);
+  for (int to_free = 0; to_free < nargs; to_free++) {
+    free(args[to_free]);
+  }
+  free(args);
 
   // END_OF_EXECUTABLE is an internal signal, not an external one.
   if (rval == END_OF_EXECUTABLE) {

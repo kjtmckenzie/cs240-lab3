@@ -1,4 +1,4 @@
-CFLAGS = -std=c99
+CFLAGS = -std=gnu99
 
 all:
 	gcc $(CFLAGS) target_sample.c -o target_sample

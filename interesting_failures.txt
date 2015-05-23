@@ -1,0 +1,4 @@
+#This file is for noting interesting failure cases we've detected.
+
+#Inject ENOMEM into 5th-and-on mmap calls within make -> program hangs before printing any gcc commands
+./tracer_sample 9 -12 0 -s 5 make
