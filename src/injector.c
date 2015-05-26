@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include "breakfast.h"
+#include "argparse.h"
 
 #define BUFLEN 4096
 
