@@ -35,7 +35,7 @@ void print_usage_and_exit() {
 unsigned long long*get_target_addrs(const char *fn, const char *target) {
   char buf[BUFLEN];
   memset(buf, 0, BUFLEN);
-  snprintf(buf, BUFLEN - 4, "objdump -D %s | grep '%s'", target, fn);
+  snprintf(buf, BUFLEN - 4, "objdump -D %s | grep -E 'callq  [0-9a-f]* <%s>'", target, fn);
 
   FILE *fp = popen(buf, "r");
   if (fp == NULL) {
@@ -63,20 +63,35 @@ unsigned long long*get_target_addrs(const char *fn, const char *target) {
   void *addr = NULL;
   while ((read = getline(&line, &len, fp)) != -1) {
     if (strstr(line, ":")) {
+      unsigned long long val;
+ 
       // This is the line for our fn: now try to read the address
       if (strstr(line, " U ")) {
         fprintf(stderr, "No address in the symbol table for '%s'! Make sure the target was compiled with '-static'!\n", fn);
+        continue;
       } else {
 
-        unsigned long long val;
         if (sscanf(line, "%16llx", &val) <= 0) {
           fprintf(stderr, "Couldn't parse address from line '%s'\n", line);
-        } else {
-          // Got the address
-          addrs[addr_idx] = val;
-          addr_idx ++;
-        }
+          continue;
+        } 
       }
+
+      char *start = strstr(line, ":");
+      start++;
+      char *end = strstr(line, "call");
+      *end = 0;
+
+      int byte_count = 0;
+      char *tok = strtok(start, " ");
+
+      while(tok) {
+        byte_count++;
+        tok = strtok(NULL, " ");
+      }
+
+      addrs[addr_idx] = val + byte_count - 1;
+      addr_idx ++;
     }
   }
   // Sentinel value for end of addresses
