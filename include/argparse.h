@@ -1,5 +1,5 @@
-#ifndef _BREAKFAST_H
-#define _BREAKFAST_H
+#ifndef _ARGPARSE_H
+#define _ARGPARSE_H
 
 #include <stdbool.h>
 

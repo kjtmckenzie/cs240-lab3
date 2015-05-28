@@ -12,12 +12,10 @@
 #include <time.h>
 #include "breakfast.h"
 #include "argparse.h"
+#include "addr_utils.h"
 
 #define BUFLEN 4096
 #define MAIN "main"
-
-// TODO: fix Makefile
-// gcc -Iinclude src/injector.c src/breakfast.c -o bin/injector
 
 void print_usage() {
   printf("Usage: injector fn retval target\n");
