@@ -16,79 +16,12 @@
 
 #define BUFLEN 4096
 
-void print_usage() {
-  printf("Usage: injector fn retval target\n");
-  printf("Where:\n");
-  printf("        fn = function to inject, e.g. 'malloc'\n");
-  printf("    retval = return value to inject, e.g. '0'\n");
-  printf("    target = statically-compiled target executable, e.g. 'bin/malloc_target'\n");
-}
 
-/**
- * Tries to read the address of the function identified by "fn" from the
- * symbol table in "target".
- *
- * @param fn The name of the function to search for; e.g. 'malloc'
- * @param target The target binary, which must be statically compiled
- *
- * @return The address in "target" of function "fn", or NULL if reading fails
- */
-void *get_target_address(const char *fn, const char *target) {
-  char buf[BUFLEN];
-  memset(buf, 0, BUFLEN);
-  snprintf(buf, BUFLEN - 4, "nm %s", target);
-
-  FILE *fp = popen(buf, "r");
-  if (fp == NULL) {
-    fprintf(stderr, "Execution of \"%s\" failed; couldn't read symtab of target!\n", buf);
-    return NULL;
-  } else if (strlen(fn) > BUFLEN - 3) {
-    fprintf(stderr, "Target function name '%s' is too long!\n", fn);
-    pclose(fp);
-    return NULL;
-  }
-
-  // Read each line looking for the address of fn
-  char *line = NULL;
-  size_t len = 0;
-  ssize_t read;
-
-  memset(buf, 0, BUFLEN);
-  size_t fn_len = strlen(fn);
-  buf[0] = ' ';
-  strncpy(&buf[1], fn, fn_len);
-  buf[fn_len + 1] = '\n';
-
-  void *addr = NULL;
-  while ((read = getline(&line, &len, fp)) != -1) {
-    if (strstr(line, buf)) {
-      // This is the line for our fn: now try to read the address
-      if (strstr(line, " U ")) {
-        fprintf(stderr, "No address in the symbol table for '%s'! Make sure the target was compiled with '-static'!\n", fn);
-      } else {
-        unsigned long long val;
-        if (sscanf(line, "%16llx", &val) <= 0) {
-          fprintf(stderr, "Couldn't parse address from line '%s'\n", line);
-        } else {
-          // Got the address!
-          addr = (void *) val;
-        }
-      }
-      break;
-    }
-  }
-
-  if (ferror(fp)) {
-    fprintf(stderr, "Error reading line from popen()!\n");
-  }
-  free(line);
-  pclose(fp);
-  return addr;
-}
 
 int main(int argc, char *argv[]) {
-  if (argc != 4) {
-    print_usage();
+  args_t *args = argparse_parse(argc, argv);
+  if (!args) {
+    argparse_usage();
     exit(1);
   }
 
@@ -100,7 +33,7 @@ int main(int argc, char *argv[]) {
   int entering = 1;
   struct user_regs_struct regs;
 
-  void *addr = get_target_address(fn, target);  // Address where malloc's code lives - failure? 0x414680
+  void *addr = get_fn_address(fn, target);  // Address where malloc's code lives - failure? 0x414680
   //void *addr = (void *) 0x40108b;  // Address where malloc is called - success?
   //void *addr = (void *) 0x4010fc;  // Address before the last printf
   if (!addr) {

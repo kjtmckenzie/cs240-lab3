@@ -79,7 +79,7 @@ target_addr_t get_fn_address(const char *fn, const char *target) {
  *
  * @param fn The name of the function to search for; e.g. 'malloc'
  * @param target The target binary, which must be statically compiled
- * @param n_calls Pointer to a size_t, set to the # of calls on success
+ * @param n_calls Pointer to a size_t, gets set to the # of calls on success
  *
  * @return A malloc()d array, which the caller must free, of n_calls call sites
  */
