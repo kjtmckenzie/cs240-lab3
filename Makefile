@@ -6,6 +6,7 @@ all:
 	gcc $(CFLAGS) test/tracer_sample.c -o bin/tracer_sample
 	gcc $(CFLAGS) -static test/malloc_target.c -o bin/malloc_target
 	gcc $(CFLAGS) test/malloc_tracer.c -o bin/malloc_tracer
+
 	# for breakfast file
 	gcc -Iinclude src/injector.c src/breakfast.c -o bin/injector
 

@@ -6,9 +6,18 @@
 
 int main(int argc, char *argv[]) {
     char *buf = malloc(BUFSIZE);
-    memset(buf, 0, BUFSIZE);
-    sprintf(buf, "Hello world!");
-    printf("The buffer says \"%s\".\n", buf);
-    free(buf);
+    if(buf) {
+      memset(buf, 0, BUFSIZE);
+      sprintf(buf, "Hello world!");
+      printf("The buffer says \"%s\".\n", buf);
+      fflush(stdout);
+      free(buf);
+    } else { 
+      printf("Buffer NULL\n");
+      fflush(stdout);
+    }
+
+    buf = malloc(BUFSIZE);
+    printf("%c\n", *buf);
     return 0;
 }

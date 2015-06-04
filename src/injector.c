@@ -13,6 +13,7 @@
 #include "breakfast.h"
 
 #define BUFLEN 4096
+#define MAIN "main"
 
 // TODO: fix Makefile
 // gcc -Iinclude src/injector.c src/breakfast.c -o bin/injector
@@ -87,6 +88,76 @@ void *get_target_address(const char *fn, const char *target) {
   return addr;
 }
 
+unsigned long long *get_target_addrs(const char *fn, const char *target) {
+  char buf[BUFLEN];
+  memset(buf, 0, BUFLEN);
+  snprintf(buf, BUFLEN - 4, "objdump -D %s | grep -E 'callq  [0-9a-f]* <%s>'", target, fn);
+
+  FILE *fp = popen(buf, "r");
+  if (fp == NULL) {
+    fprintf(stderr, "Execution of \"%s\" failed; couldn't read symtab of target!\n", buf);
+    //return NULL;
+    return NULL;
+  } else if (strlen(fn) > BUFLEN - 3) {
+    fprintf(stderr, "Target function name '%s' is too long!\n", fn);
+    pclose(fp);
+    //return NULL;
+    return NULL;
+  }
+
+
+  unsigned long long *addrs = malloc (sizeof (unsigned long long) * 1000);
+  size_t addr_idx = 0; 
+
+  // Read each line looking for the address of fn
+  char *line = NULL;
+  size_t len = 0;
+  ssize_t read;
+
+  memset(buf, 0, BUFLEN);
+
+  void *addr = NULL;
+  while ((read = getline(&line, &len, fp)) != -1) {
+    if (strstr(line, ":")) {
+      unsigned long long val;
+ 
+      // This is the line for our fn: now try to read the address
+      if (strstr(line, " U ")) {
+        fprintf(stderr, "No address in the symbol table for '%s'! Make sure the target was compiled with '-static'!\n", fn);
+        continue;
+      } else {
+
+        if (sscanf(line, "%16llx", &val) <= 0) {
+          fprintf(stderr, "Couldn't parse address from line '%s'\n", line);
+          continue;
+        } 
+      }
+
+      char *start = strstr(line, ":");
+      start++;
+      char *end = strstr(line, "call");
+      *end = 0;
+
+      int byte_count = 0;
+      char *tok = strtok(start, " ");
+
+      while(tok) {
+        byte_count++;
+        tok = strtok(NULL, " ");
+      }
+
+      addrs[addr_idx] = val + byte_count - 1;
+      addr_idx ++;
+    }
+  }
+
+  pclose(fp);
+
+  // Sentinel value for end of addresses
+  addrs[addr_idx] = (unsigned long long) 0;
+  return addrs;
+}
+
 int main(int argc, char *argv[]) {
   if (argc != 4) {
     print_usage();
@@ -101,17 +172,14 @@ int main(int argc, char *argv[]) {
   int entering = 1;
   struct user_regs_struct regs;
 
-  void *addr = get_target_address(fn, target);  // Address where malloc's code lives - failure? 0x414680
-  //void *addr = (void *) 0x40108b;  // Address where malloc is called - success?
-  //void *addr = (void *) 0x4010fc;  // Address before the last printf
-  if (!addr) {
+  void *main_addr = get_target_address(MAIN, target);
+  unsigned long long *target_addrs = get_target_addrs(fn, target);
+
+  if (!target_addrs) {
     printf("Couldn't read address of %s from %s! Aborting.\n", fn, target);
     exit(1);
   }
-  printf("Read address=%p for fn=%s from target=%s\n", addr, fn, target);
 
-
-  fflush(stdout);
   pid_t pid = fork();
   if (!pid) {
     // Child: register as tracee and run target process
@@ -120,19 +188,44 @@ int main(int argc, char *argv[]) {
     ptrace(PTRACE_TRACEME, 0, 0, 0);
     //kill(getpid(), SIGSTOP);
     execlp(target, target, NULL);
+
   } else {
     // Parent: trace child and inject breakpoints
     printf("Parent: attaching breakfast\n");
     fflush(stdout);
-    //breakfast_attach(pid);
+
+    struct breakpoint *last_break = NULL;
+    void *last_ip;
 
     waitpid(pid, NULL, 0);
 
-    // Set breakpoint at malloc_addr
-    struct breakpoint *malloc_break = breakfast_break(pid, (target_addr_t) addr);
-    struct breakpoint *last_break = NULL;
+    struct breakpoint *main_break = breakfast_break(pid, (target_addr_t) main_addr);
 
-    void *last_ip;
+    printf("Skip preprocess. Main function should be called.\n");
+    fflush(stdout);
+
+    // Run until main is caught
+    while(breakfast_run(pid, last_break)) {
+      last_ip = breakfast_getip(pid);
+      if(last_ip == main_addr) {
+        last_break = main_break;
+        break;
+      }
+    } 
+
+    printf("Main is called. Now our breakpoint is to be set.\n");
+    fflush(stdout);
+
+    struct breakpoint **breakpoints = (struct breakpoint **)(malloc(1000 * sizeof(struct breakpoint *)));
+
+    int i, count = 0;
+    for(i = 0; target_addrs[i] != 0; i++) {
+      breakpoints[i] = breakfast_break(pid, (target_addr_t)target_addrs[i]);
+      count ++;
+    }
+
+    // Set breakpoint at malloc_addr
+    //struct breakpoint *malloc_break = breakfast_break(pid, (target_addr_t) addr);
 
     printf("Before breakfast_run\n");
     fflush(stdout);
@@ -140,17 +233,29 @@ int main(int argc, char *argv[]) {
       printf("In breakfast_run loop\n");
       fflush(stdout);
       last_ip = breakfast_getip(pid);
-      if (last_ip == addr) {
-        printf("Break at malloc()\n");
-        fflush(stdout);
-        last_break = malloc_break;
-      } else {
+
+      int j;
+      for(j = 0; j < count; j++) {
+        if(last_ip == (void *)target_addrs[j]) break;
+      }
+
+      if(j == count) {
         printf("Unknown trap at %p\n", last_ip);
         fflush(stdout);
         last_break = NULL;
+      } else {
+        printf("Break at return after malloc()\n");
+        fflush(stdout);
+        ptrace(PTRACE_GETREGS, pid, 0, &regs);
+        regs.rax = retval;
+        ptrace(PTRACE_SETREGS, pid, 0, &regs);
+        last_break = breakpoints[j];
       }
     }
 
+    free(main_break);
+    free(breakpoints);
+    free(target_addrs);
     printf("injector: All done!\n");
   }
 
