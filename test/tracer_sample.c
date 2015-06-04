@@ -13,18 +13,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <search.h>
-
-#define MAX_TARGET_LEN 1024
-#define MAX_TARGET_ARGS 64
-
-#define MAX_ARGS 9
-#define MIN_ARGS 7
-
-#define FULL_RUN_MODE 0
-#define RUN_MODE 1
-#define SKIP_MODE 2
-
-#define MAX_SYSCALLS 430
+#include "../include/argparse.h"
 
 #define READ 0
 #define WRITE 1
@@ -34,24 +23,9 @@
 #define MKDIR 83
 #define OPENAT 257
 
-#define INPUT_LIST_DELIM ","
 //A return value indicating we reached past the end of executable. Chosen larger than 256 so that it 
 //won't clash with most POSIX exit codes.
 #define END_OF_EXECUTABLE 400
-
-void print_usage_and_exit() {
-  printf("Usage: tracer_sample signum[,signum2,signum3,...] retval[,retval2,retval3,...] fail_on_entry follow_clones [ -s num_to_skip || -r num_of_runs ] target\n");
-  printf("    signum: Syscall #s to intercept\n");
-  printf("    retval: Return value to insert. Should be one retval per signum\n");
-  printf("    fail_on_entry: 1 to fail syscall on entry or 0 to fail syscall after it has returned\n");
-  printf("    follow_clones: 1 to trace cloned or forked processes or 0 to only trace the original process\n");
-  printf("    fail_only_dirs: 1 to fail syscalls only on directory file descriptors\n");
-  printf("    num_to_skip: Number of syscalls to skip before injection\n");
-  printf("    num_of_runs: Runs in multi-run mode, skipping first 0 syscalls before fault injection, then 1, 2, etc.. up to num_of_runs\n");
-  printf("    target: Path to target executable. Include any command-line args to run with\n");
-  printf("Default behavior for skip/runs is to run until no faults are injected.\n");
-  exit(1);
-}
 
 /* A simple int comparison functions for checking against syscall numbers. Used for lfind. */
 int cmp_sys_num(const void* num_a, const void* num_b) {
@@ -305,155 +279,35 @@ int multi_injection_run(int* target_syscalls, int num_syscalls, long long int* r
   return 0;
 }
 
-/* Parses the comma-separated lists of target syscalls and return values. Returns 0 unless
-*  something bad happened in the parsing. Note that this functiona allocates dynamic memory
-*  to store the syscall numbers array and the return value arrays. */
-int parse_target_syscall_args(int** target_syscalls, int* num_syscalls, long long int** retvals, char** argv) {
-  int sys_buf[MAX_SYSCALLS];
-  long long int ret_buf[MAX_SYSCALLS];
-  *num_syscalls = 0;
-  int num_retvals = 0;
-
-  char* sys_args = argv[1];
-  char* ret_args = argv[2];
-
-  //Read in the syscall numbers.
-  char* cur_sys = strtok(sys_args, INPUT_LIST_DELIM);
-  while ((cur_sys != NULL) && (*num_syscalls < MAX_SYSCALLS)) {
-    int ival = atoi(cur_sys);
-    size_t n_syscall_idx = *num_syscalls;
-    if (lfind(&ival, sys_buf, &n_syscall_idx, sizeof(int), cmp_sys_num)) {
-      printf("Invalid target syscall list -- duplicate syscall numbers are not allowed\n");
-      return 1;
-    }
-    sys_buf[*num_syscalls] = ival;
-    (*num_syscalls)++;
-    cur_sys = strtok(NULL, INPUT_LIST_DELIM);
-  }
-
-  //Read in the return values.
-  char* cur_ret = strtok(ret_args, INPUT_LIST_DELIM);
-  while ((cur_ret != NULL) && (num_retvals < *num_syscalls)) {
-    int rval = atoi(cur_ret);
-    ret_buf[num_retvals] = rval;
-    num_retvals++; 
-    cur_ret = strtok(NULL, INPUT_LIST_DELIM);
-  }
-  if ((num_retvals < *num_syscalls) || (cur_ret && (*cur_ret))) {
-    printf("Invalid injected return value list -- number of values should match number of target syscalls\n");
-    return 1;
-  }
-
-  //Allocate right-sized arrays and return.
-  if (!(*target_syscalls = malloc(sizeof(int) * *num_syscalls))) {
-    printf("Failed to allocate memory for syscall numbers\n");
-    return 1;
-  }
-  if (!(*retvals = malloc(sizeof(long long int) * num_retvals))) {
-    printf("Failed to allocate memory for injected return values\n");
-    return 1;
-  }
-  memcpy(*target_syscalls, sys_buf, sizeof(int) * *num_syscalls);
-  memcpy(*retvals, ret_buf, sizeof(long long int) * num_retvals);
-
-  return 0;
-}
-
-/* Parses the target command, extracting arguments as individual strings and allocating
- * each string as well as the array to hold them. Returns the number of arguments. */
-int parse_target_command(char* cmd, char** target_name, char*** target_args) {
-  char target_buf[MAX_TARGET_LEN];
-  char* targ_buf[MAX_TARGET_ARGS];
-  strcpy(target_buf, cmd);
-  
-  //Extract and save a copy of the target executable path.
-  char* cur_arg = strtok(target_buf, " ");
-  *target_name = strdup(cur_arg);
-  targ_buf[0] = strdup(*target_name);
-
-  int i = 1;
-  
-  while ((cur_arg = strtok(NULL, " "))) {
-    targ_buf[i] = strdup(cur_arg);
-    i++;
-  }
-
-  *target_args = malloc(sizeof(char*) * i);
-  memcpy(*target_args, targ_buf, sizeof(char*) * i);
-
-  return i;
-}
-
 /* Launch the program. */
 int main(int argc, char *argv[]) {
-  // Validate argc
-  if((argc != MIN_ARGS) && (argc != MAX_ARGS)) {
-    print_usage_and_exit();
+  args_t* args = argparse_parse(argc, argv);
+  if (args == NULL) {
+    return -1;
   }
 
-  // Validate target name
-  char* target_inp;
-  if (argc == MIN_ARGS) {
-    target_inp = argv[6];
-  } else {
-    target_inp = argv[8];
-  }
-  if(strlen(target_inp) > MAX_TARGET_LEN) {
-    printf("Target command cannot be longer than 1024.\n");
-    return 1;
-  }
-
-  //Parse the targeted syscall numbers and values to inject.
-  int* target_syscalls;
-  int num_syscalls;
-  long long int* retvals;
-  if (parse_target_syscall_args(&target_syscalls, &num_syscalls, &retvals, argv)) {
-    return 1;
-  }
-
-  int fail_on_entry = atoi(argv[3]);
-  int follow_clones = atoi(argv[4]);
-  int fail_only_dirs = atoi(argv[5]);
-
-  int mode = FULL_RUN_MODE;
-  long long int num_ops;
-
-  // Determine the mode of operation and the number of skips/runs if applicable.
-  if (argc == MAX_ARGS) {
-    num_ops = atoll(argv[7]);
-    if (!strcmp(argv[6], "-s")) {
-      mode = SKIP_MODE;
-    } else if (!strcmp(argv[6], "-r")) {
-      mode = RUN_MODE;
-    } else {
-      print_usage_and_exit();
-    }
-  }
-
-  // Create a buffer to store the target name.
-  char* target;
-  char** args;
-  int nargs = parse_target_command(target_inp, &target, &args);
-  
   int rval = 0;
 
   // Dispatch the runs.
-  if (mode == FULL_RUN_MODE) {
-    rval = full_injection_run(target_syscalls, num_syscalls, retvals, fail_on_entry, follow_clones, fail_only_dirs, target, args);
-  } else if (mode == RUN_MODE) {
-    rval = multi_injection_run(target_syscalls, num_syscalls, retvals, fail_on_entry, follow_clones, fail_only_dirs, num_ops, target, args);
+  if (args->mode == run_all) {
+    rval = full_injection_run(args->syscall_nos, args->n_syscalls, args->syscall_retvals, 
+			      args->fail_on_entry, args->follow_clones, 
+			      args->fail_only_dirs, args->target_argv[0], 
+			      args->target_argv);
+  } else if (args->mode == run_n) {
+    rval = multi_injection_run(args->syscall_nos, args->n_syscalls, args->syscall_retvals, 
+			       args->fail_on_entry, args->follow_clones, 
+			       args->fail_only_dirs, args->num_ops, args->target_argv[0], 
+			       args->target_argv);
   } else {
-    rval = single_injection_run(target_syscalls, num_syscalls, retvals, fail_on_entry, follow_clones, fail_only_dirs, num_ops, target, args);
+    rval = single_injection_run(args->syscall_nos, args->n_syscalls, args->syscall_retvals, 
+				args->fail_on_entry, args->follow_clones, 
+				args->fail_only_dirs, args->num_ops, args->target_argv[0],
+				args->target_argv);
   }
 
   //Free dynamic memory used for syscall numbers and injected values.
-  free(target_syscalls);
-  free(retvals);
-  free(target);
-  for (int to_free = 0; to_free < nargs; to_free++) {
-    free(args[to_free]);
-  }
-  free(args);
+  argparse_destroy(args);
 
   // END_OF_EXECUTABLE is an internal signal, not an external one.
   if (rval == END_OF_EXECUTABLE) {

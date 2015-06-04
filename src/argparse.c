@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <search.h>
-#include "argparse.h"
+#include "../include/argparse.h"
 
 #define MAX_SYSCALLS 430
 
@@ -20,9 +20,11 @@
 #define SYSCALLS    1
 #define SYS_RETVALS 2
 #define FAIL_ENTRY  3
-#define RUN_MODE    4
-#define NUM_OPS     5
-#define TARGET      6
+#define FOLLOW_CLONES 4
+#define ONLY_DIRS   5
+#define RUN_MODE    6
+#define NUM_OPS     7
+#define TARGET      8
 
 /**
  * Prints the expected argument structure and order.
@@ -39,6 +41,10 @@ void argparse_usage() {
   printf("                 Singleton or comma-separated values.\n");
   printf("    fail_on_entry: 1 to fail syscall on entry, or\n");
   printf("                   0 to fail syscall after it has returned\n");
+  printf("    follow_clones: 1 to follow processes cloned/forked by the traced process.\n");
+  printf("                   0 to follow no subprocesses besides the initial traced process.\n");
+  printf("    fail_only_dirs: 1 to have filesystem-based syscalls fail only for directories.\n");
+  printf("                    0 to have filesystem-based syscalls fail on any ops when scheduled.\n");
   printf("    run_mode: Controls how faults are injected from run to run. Valid modes are:\n");
   printf("              \"skip\": Injector will skip \'num\' syscalls before injecting.\n");
   printf("              \"run\": Injector runs \'num\' times. Run i skips the first i syscalls before injection.\n");
@@ -113,6 +119,18 @@ static bool parse_fail_on_entry(args_t *args, char *argv[]) {
     int fail_on_entry = atoi(argv[FAIL_ENTRY]);
     args->fail_on_entry = fail_on_entry;
     return true;
+}
+
+static bool parse_follow_clones(args_t *args, char *argv[]) {
+  int follow_clones = atoi(argv[FOLLOW_CLONES]);
+  args->follow_clones = follow_clones;
+  return true;
+}
+
+static bool parse_fail_only_dirs(args_t *args, char *argv[]) {
+  int fail_only_dirs = atoi(argv[ONLY_DIRS]);
+  args->fail_only_dirs = fail_only_dirs;
+  return true;
 }
 
 static bool parse_run_mode(args_t *args, char *argv[]) {
@@ -205,8 +223,7 @@ static bool parse_target(args_t *args, int argc, char *argv[]) {
 args_t *argparse_parse(int argc, char*argv[]) {
   args_t *args = NULL;
   if (argc < TARGET + 1) {
-    fprintf(stderr, "argparse_parse: Wrong number of arguments! Given %d; at least %d required.\n",
-            argc, TARGET + 1);
+    argparse_usage();
     goto fail;
   }
 
@@ -226,6 +243,17 @@ args_t *argparse_parse(int argc, char*argv[]) {
   // Parse the "fail_on_entry" arg
   if (!parse_fail_on_entry(args, argv)) {
     fprintf(stderr, "argparse_parse: parse_fail_on_entry failed!\n");
+    goto fail;
+  }
+
+  if (!parse_follow_clones(args, argv)) {
+    fprintf(stderr, "argparse_parse: parse_follow_clones failed!\n");
+    goto fail;
+  }
+
+  // Parse the "fail_on_entry" arg
+  if (!parse_fail_only_dirs(args, argv)) {
+    fprintf(stderr, "argparse_parse: parse_fail_only_dirs failed!\n");
     goto fail;
   }
 
