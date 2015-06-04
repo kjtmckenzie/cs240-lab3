@@ -1,6 +1,8 @@
 #include <sys/ptrace.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
@@ -15,14 +17,22 @@
 #define MAX_TARGET_LEN 1024
 #define MAX_TARGET_ARGS 64
 
-#define MAX_ARGS 8
-#define MIN_ARGS 6
+#define MAX_ARGS 9
+#define MIN_ARGS 7
 
 #define FULL_RUN_MODE 0
 #define RUN_MODE 1
 #define SKIP_MODE 2
 
 #define MAX_SYSCALLS 430
+
+#define READ 0
+#define WRITE 1
+#define OPEN 2
+#define CLOSE 3
+#define FSYNC 74
+#define MKDIR 83
+#define OPENAT 257
 
 #define INPUT_LIST_DELIM ","
 //A return value indicating we reached past the end of executable. Chosen larger than 256 so that it 
@@ -35,6 +45,7 @@ void print_usage_and_exit() {
   printf("    retval: Return value to insert. Should be one retval per signum\n");
   printf("    fail_on_entry: 1 to fail syscall on entry or 0 to fail syscall after it has returned\n");
   printf("    follow_clones: 1 to trace cloned or forked processes or 0 to only trace the original process\n");
+  printf("    fail_only_dirs: 1 to fail syscalls only on directory file descriptors\n");
   printf("    num_to_skip: Number of syscalls to skip before injection\n");
   printf("    num_of_runs: Runs in multi-run mode, skipping first 0 syscalls before fault injection, then 1, 2, etc.. up to num_of_runs\n");
   printf("    target: Path to target executable. Include any command-line args to run with\n");
@@ -45,6 +56,57 @@ void print_usage_and_exit() {
 /* A simple int comparison functions for checking against syscall numbers. Used for lfind. */
 int cmp_sys_num(const void* num_a, const void* num_b) {
   return (*(int*)num_a) - (*(int*)num_b);
+}
+
+struct list_entry {
+    int id;         
+    struct list_entry * next;
+};
+
+struct list_entry * list_of_dirfds;
+
+struct list_entry* find_last_node() {
+  struct list_entry* cur_node;
+  if (list_of_dirfds == NULL)
+    return NULL;
+  cur_node = list_of_dirfds;
+  while (cur_node->next != NULL){
+    cur_node = cur_node->next;
+  }
+  return cur_node;
+}
+
+void add_dirfd(int dirfd) {
+  struct list_entry* last_node;
+  struct list_entry* new_node = (struct list_entry *) malloc(sizeof(struct list_entry));
+  new_node->id = dirfd;
+  new_node->next = NULL;
+  last_node = find_last_node();
+  if (last_node == NULL)
+    list_of_dirfds = new_node;
+  else
+    last_node->next = new_node;
+}
+
+int is_dirfd(int fd) {
+  struct list_entry* cur_node = list_of_dirfds;
+  while (cur_node != NULL) {
+    if (cur_node->id == fd)
+      return 1;
+    cur_node = cur_node->next;
+  }
+  return 0;
+}
+
+void free_dirfd_list() {
+  struct list_entry* next_node;
+  struct list_entry* cur_node = list_of_dirfds;
+  if (cur_node != NULL) {
+    next_node = cur_node->next;
+    free(cur_node);
+    cur_node = next_node;
+  }
+  return;
 }
 
 int clone_entering = 1;
@@ -82,15 +144,18 @@ int trace_clone(long pid) {
 /* Perform a single run of tracing, skipping the first num_to_skip syscalls and injecting a fault in all those 
    that follow. */
 int single_injection_run(int* target_syscalls, int num_syscalls, long long int* retvals,
-			 int fail_on_entry, int follow_clones, long long int num_to_skip, char* target, char** args) {
+			 int fail_on_entry, int follow_clones, int fail_only_dirs, long long int num_to_skip, char* target, char** args) {
   int status = 0;
   int syscall_n = 0;
   int entering = 1;
+  int open_entering = 1;
   int entry_intercepted = 0;
   int intercepted_retval = 0;
   long long int syscall_count = 0;
   struct user_regs_struct regs;
+  int found_directory = 0;
   int cloned_pid;
+  int flags;
   int pid = fork();
   if ( !pid ) {
     printf("The child is running\n");
@@ -100,6 +165,7 @@ int single_injection_run(int* target_syscalls, int num_syscalls, long long int* 
   else {
     // Print status message concerning the run.
     printf("\nRunning ptrace injector on %s for syscalls: ", target);
+    ptrace( PTRACE_SYSCALL, pid, 0, 0 );
     for (int i = 0; i < num_syscalls; i++) {
       printf("%d, ", target_syscalls[i]);
     }
@@ -110,11 +176,16 @@ int single_injection_run(int* target_syscalls, int num_syscalls, long long int* 
     while ( 1 ) {
       ptrace( PTRACE_SYSCALL, pid, 0, 0 );
       wait( &status );
+      fflush(stdout);
 
-      if ( WIFEXITED( status ) ) break;
+      
+      if ( WIFEXITED( status ) ) {
+        break;
+      }
       else { 
         /* I'm not sure this code works as intended */
         //sleep(1);
+        fflush(stdout);
         loop_counter ++; 
         if (loop_counter > 1000000) {
           printf("TIMEOUT: Ptrace is taking too long on %s for syscall %d\n", target, syscall_n);
@@ -122,7 +193,8 @@ int single_injection_run(int* target_syscalls, int num_syscalls, long long int* 
         }
         
       }
-      
+      //printf("Im here! 5\n");
+      fflush(stdout);
       // check to see if the process has cloned itself
       if (follow_clones) {
         cloned_pid = trace_clone(pid);
@@ -139,36 +211,60 @@ int single_injection_run(int* target_syscalls, int num_syscalls, long long int* 
       
       size_t n_syscalls_idx = num_syscalls;
       // only intercept the syscall we want to intercept
+      
+      if (open_entering) {
+        if ( syscall_n == OPEN) {
+          open_entering = 0;
+          flags = regs.rsi;
+          if (flags & O_DIRECTORY)
+            found_directory = 1;
+        } else if ( syscall_n == OPENAT) {
+          open_entering = 0;
+          flags = regs.rdx;
+          if (flags & O_DIRECTORY)
+            found_directory = 1;
+        } 
+      } else {
+        open_entering = 1;
+        if ( syscall_n == OPEN && found_directory)
+          add_dirfd((int) regs.rax);
+        if ( syscall_n == OPENAT && found_directory)
+          add_dirfd((int) regs.rax);
+        found_directory = 0;
+      }
+      
       if ( (syscall_idx = lfind(&syscall_n, target_syscalls, &n_syscalls_idx, sizeof(int), cmp_sys_num)) || entry_intercepted ) {
         if ( entering ) {
           // we only want to change the return value on syscall exit
           entering = 0;
           syscall_count++;
           
-          if ( syscall_count > num_to_skip  && fail_on_entry ) {
-            ptrace( PTRACE_GETREGS, pid, 0, &regs );
-            // set it to a dummy syscall getpid
-	          regs.orig_rax = 39;
-            ptrace( PTRACE_SETREGS, pid, 0, &regs );
-            entry_intercepted = 1;      
-            intercepted_retval = retvals[syscall_idx - target_syscalls];
+          if ( syscall_count > num_to_skip  && fail_on_entry && !(syscall_n == WRITE && regs.rdi < 3)) {
+            if (!fail_only_dirs || is_dirfd(regs.rdi)) {
+              ptrace( PTRACE_GETREGS, pid, 0, &regs );
+              // set it to a dummy syscall getpid
+  	          regs.orig_rax = 39;
+              ptrace( PTRACE_SETREGS, pid, 0, &regs );
+              entry_intercepted = 1;      
+              intercepted_retval = retvals[syscall_idx - target_syscalls];
+            }
           }
           
         }
         else {
           entering = 1;
           entry_intercepted = 0;
-          if (syscall_count > num_to_skip) {
-            ptrace( PTRACE_GETREGS, pid, 0, &regs );
-            //printf("About to segfault\n");
-            if ( fail_on_entry ) {
-              regs.rax = intercepted_retval;
-            } else {
-              regs.rax = retvals[syscall_idx - target_syscalls];
+          if (syscall_count > num_to_skip && !(syscall_n == WRITE && regs.rdi < 3)) {
+            if (!fail_only_dirs || is_dirfd(regs.rdi)) {
+              ptrace( PTRACE_GETREGS, pid, 0, &regs );
+              if ( fail_on_entry ) {
+                regs.rax = intercepted_retval;
+              } else {
+                regs.rax = retvals[syscall_idx - target_syscalls];
+              }
+              // set the return value of the syscall
+              ptrace( PTRACE_SETREGS, pid, 0, &regs );
             }
-            //printf("Didn't segfault!\n");
-            // set the return value of the syscall
-            ptrace( PTRACE_SETREGS, pid, 0, &regs );
           }
         }
       }
@@ -184,12 +280,12 @@ int single_injection_run(int* target_syscalls, int num_syscalls, long long int* 
 /* Run injections progressing from faulting the first syscall, to the second, third, etc... until 
    the runs have faulted every syscall in the execution once. */
 int full_injection_run(int* target_syscalls, int num_syscalls, long long int* retvals, 
-		       int fail_on_entry, int follow_clones, char* target, char** args) {
+		       int fail_on_entry, int follow_clones, int fail_only_dirs, char* target, char** args) {
   long long int current_skip = 0;
   
   int res = 0;
   while (res == 0) {
-    res = single_injection_run(target_syscalls, num_syscalls, retvals, fail_on_entry, follow_clones, current_skip, target, args);
+    res = single_injection_run(target_syscalls, num_syscalls, retvals, fail_on_entry, follow_clones, fail_only_dirs, current_skip, target, args);
     current_skip++;
   }
   return res;
@@ -199,9 +295,9 @@ int full_injection_run(int* target_syscalls, int num_syscalls, long long int* re
    either all syscall in the execution have been faulted or all syscalls up to the input num_ops have been 
    faulted, whichever comes first. */
 int multi_injection_run(int* target_syscalls, int num_syscalls, long long int* retvals, 
-			int fail_on_entry, int follow_clones, long long int num_ops, char* target, char** args) {
+			int fail_on_entry, int follow_clones, int fail_only_dirs, long long int num_ops, char* target, char** args) {
   for (long long int i = 0; i <= num_ops; i++) {
-    int res = single_injection_run(target_syscalls, num_syscalls, retvals, fail_on_entry, follow_clones, i, target, args);
+    int res = single_injection_run(target_syscalls, num_syscalls, retvals, fail_on_entry, follow_clones, fail_only_dirs, i, target, args);
     if (res) { //End if an error w.r.t the injector's end occurs or we reach past the end of the executable.
       return res;
     }
@@ -298,9 +394,9 @@ int main(int argc, char *argv[]) {
   // Validate target name
   char* target_inp;
   if (argc == MIN_ARGS) {
-    target_inp = argv[5];
+    target_inp = argv[6];
   } else {
-    target_inp = argv[7];
+    target_inp = argv[8];
   }
   if(strlen(target_inp) > MAX_TARGET_LEN) {
     printf("Target command cannot be longer than 1024.\n");
@@ -317,16 +413,17 @@ int main(int argc, char *argv[]) {
 
   int fail_on_entry = atoi(argv[3]);
   int follow_clones = atoi(argv[4]);
+  int fail_only_dirs = atoi(argv[5]);
 
   int mode = FULL_RUN_MODE;
   long long int num_ops;
 
   // Determine the mode of operation and the number of skips/runs if applicable.
   if (argc == MAX_ARGS) {
-    num_ops = atoll(argv[6]);
-    if (!strcmp(argv[5], "-s")) {
+    num_ops = atoll(argv[7]);
+    if (!strcmp(argv[6], "-s")) {
       mode = SKIP_MODE;
-    } else if (!strcmp(argv[5], "-r")) {
+    } else if (!strcmp(argv[6], "-r")) {
       mode = RUN_MODE;
     } else {
       print_usage_and_exit();
@@ -342,11 +439,11 @@ int main(int argc, char *argv[]) {
 
   // Dispatch the runs.
   if (mode == FULL_RUN_MODE) {
-    rval = full_injection_run(target_syscalls, num_syscalls, retvals, fail_on_entry, follow_clones, target, args);
+    rval = full_injection_run(target_syscalls, num_syscalls, retvals, fail_on_entry, follow_clones, fail_only_dirs, target, args);
   } else if (mode == RUN_MODE) {
-    rval = multi_injection_run(target_syscalls, num_syscalls, retvals, fail_on_entry, follow_clones, num_ops, target, args);
+    rval = multi_injection_run(target_syscalls, num_syscalls, retvals, fail_on_entry, follow_clones, fail_only_dirs, num_ops, target, args);
   } else {
-    rval = single_injection_run(target_syscalls, num_syscalls, retvals, fail_on_entry, follow_clones, num_ops, target, args);
+    rval = single_injection_run(target_syscalls, num_syscalls, retvals, fail_on_entry, follow_clones, fail_only_dirs, num_ops, target, args);
   }
 
   //Free dynamic memory used for syscall numbers and injected values.
