@@ -1,4 +1,15 @@
 #This file is for noting interesting failure cases we've detected.
 
-#Inject ENOMEM into 5th-and-on mmap calls within make -> program hangs before printing any gcc commands
+#Inject ENOMEM into 5th-and-on mmap calls within seemingly any program -> hangs with no message.
 ./tracer_sample 9 -12 0 -s 5 make
+
+#Or when breaking on mmap and brk with ENOMEM:
+./tracer_sample 9,12 -12,-12 0 -s 6 make
+./tracer_sample 9,12 -12,-12 0 -s 6 "echo 'hi'"
+
+#Can show that it definitely catches application-specific responses to syscall failures:
+./tracer_sample 9,12 -12,-12 0 -s 8 make
+
+#If the memory stops coming at calls between numbers 42 and the low 70s, vim dies rather spectacularly messily (and locks up my terminal...)
+#In particular, it appears that vim attempts co continue executing after running out of memory, even if what it's currently doing is parsing metadata (like its filetype information) leading to awkward partial parse messages like 'endif without if' and 'endprogram without program' all over. In worse cases it seems to fail partway through creating a TUI window and then the terminal seems to be completely locked up.
+./tracer_sample 9,12 -12,-12 0 -s 42 "vim vimtest.txt"
