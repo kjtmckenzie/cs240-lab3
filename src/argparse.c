@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <search.h>
-#include "../include/argparse.h"
+#include "argparse.h"
 
 #define MAX_SYSCALLS 430
 
@@ -70,6 +70,12 @@ static int cmp_sys_num(const void* num_a, const void* num_b) {
 *  something bad happened in the parsing. Note that this functiona allocates dynamic memory
 *  to store the syscall numbers array and the return value arrays. */
 static bool parse_syscalls(args_t *args, char *argv[]) {
+  if (!strcmp(argv[SYSCALLS], "-1")) {
+    // No syscalls will be faulted
+    args->n_syscalls = 0;
+    return true;
+  }
+
   int sys_buf[MAX_SYSCALLS];
   long long int ret_buf[MAX_SYSCALLS];
   size_t n_syscalls = 0;
@@ -121,8 +127,13 @@ static bool parse_syscalls(args_t *args, char *argv[]) {
   return true;
 }
 
-// IAW FIXME
 static bool parse_functions(args_t *args, char *argv[]) {
+  if (!strcmp(argv[FUNCTIONS], "-1")) {
+    // No functions will be faulted
+    args->n_functions = 0;
+    return true;
+  }
+
   char *fn_buf[MAX_SYSCALLS];
   long long int ret_buf[MAX_SYSCALLS];
   size_t n_functions = 0;
