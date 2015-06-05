@@ -28,10 +28,10 @@ target_addr_t get_fn_address(const char *fn, const char *target) {
 
   FILE *fp = popen(buf, "r");
   if (fp == NULL) {
-    fprintf(stderr, "get_target_address: Execution of \"%s\" failed; couldn't read symtab of target!\n", buf);
+    fprintf(stderr, "get_fn_address: Execution of \"%s\" failed; couldn't read symtab of target!\n", buf);
     return NULL;
   } else if (strlen(fn) > BUFLEN - 3) {
-    fprintf(stderr, "get_target_address: Target function name '%s' is too long!\n", fn);
+    fprintf(stderr, "get_fn_address: Target function name '%s' is too long!\n", fn);
     pclose(fp);
     return NULL;
   }
@@ -52,11 +52,11 @@ target_addr_t get_fn_address(const char *fn, const char *target) {
     if (strstr(line, buf)) {
       // This is the line for our fn: now try to read the address
       if (strstr(line, " U ")) {
-        fprintf(stderr, "get_target_address: No address in the symbol table for '%s'! Make sure the target was compiled with '-static'!\n", fn);
+        fprintf(stderr, "get_fn_address: No address in the symbol table for '%s'! Make sure the target was compiled with '-static'!\n", fn);
       } else {
         unsigned long long val;
         if (sscanf(line, "%16llx", &val) <= 0) {
-          fprintf(stderr, "get_target_address: Couldn't parse address from line '%s'\n", line);
+          fprintf(stderr, "get_fn_address: Couldn't parse address from line '%s'\n", line);
         } else {
           // Got the address!
           addr = (void *) val;
@@ -67,7 +67,7 @@ target_addr_t get_fn_address(const char *fn, const char *target) {
   }
 
   if (ferror(fp)) {
-    fprintf(stderr, "get_target_address: Error reading line from popen()!\n");
+    fprintf(stderr, "get_fn_address: Error reading line from popen()!\n");
   }
   free(line);
   pclose(fp);

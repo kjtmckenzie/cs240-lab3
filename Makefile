@@ -11,7 +11,6 @@ MAIN = injector
 
 all: $(MAIN)
 	$(CC) $(CFLAGS) test/getuid_target.c -o bin/getuid_target
-	$(CC) $(CFLAGS) test/tracer_sample.c src/argparse.c -o bin/tracer_sample
 	$(CC) $(CFLAGS) -static test/malloc_target.c -o bin/malloc_target
 	$(CC) $(CFLAGS) test/malloc_tracer.c -o bin/malloc_tracer
 

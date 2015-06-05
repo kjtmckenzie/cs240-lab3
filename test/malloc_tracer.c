@@ -251,5 +251,108 @@ int main(int argc, char *argv[]) {
     }
   }*/
 
+// IAW FIXME: copypasts from old injector.c - integrate w/ syscalls
+// int main(int argc, char *argv[]) {
+//   args_t *args = argparse_parse(argc, argv);
+//   if (!args) {
+//     argparse_usage();
+//     exit(1);
+//   }
+
+//   const char *fn = argv[1];
+//   int retval = atoi(argv[2]);
+//   const char *target = argv[3];
+
+//   int status = 0;
+//   int entering = 1;
+//   struct user_regs_struct regs;
+
+//   void *main_addr = get_fn_address(MAIN, target);
+//   unsigned long long *target_addrs = get_target_addrs(fn, target);
+
+//   if (!target_addrs) {
+//     printf("Couldn't read address of %s from %s! Aborting.\n", fn, target);
+//     exit(1);
+//   }
+
+//   pid_t pid = fork();
+//   if (!pid) {
+//     // Child: register as tracee and run target process
+//     printf("Child: execing %s!\n", target);
+//     fflush(stdout);
+//     ptrace(PTRACE_TRACEME, 0, 0, 0);
+//     //kill(getpid(), SIGSTOP);
+//     execlp(target, target, NULL);
+
+//   } else {
+//     // Parent: trace child and inject breakpoints
+//     printf("Parent: attaching breakfast\n");
+//     fflush(stdout);
+
+//     struct breakpoint *last_break = NULL;
+//     void *last_ip;
+
+//     waitpid(pid, NULL, 0);
+
+//     struct breakpoint *main_break = breakfast_break(pid, (target_addr_t) main_addr);
+
+//     printf("Skip preprocess. Main function should be called.\n");
+//     fflush(stdout);
+
+//     // Run until main is caught
+//     while(breakfast_run(pid, last_break)) {
+//       last_ip = breakfast_getip(pid);
+//       if(last_ip == main_addr) {
+//         last_break = main_break;
+//         break;
+//       }
+//     } 
+
+//     printf("Main is called. Now our breakpoint is to be set.\n");
+//     fflush(stdout);
+
+//     struct breakpoint **breakpoints = (struct breakpoint **)(malloc(1000 * sizeof(struct breakpoint *)));
+
+//     int i, count = 0;
+//     for(i = 0; target_addrs[i] != 0; i++) {
+//       breakpoints[i] = breakfast_break(pid, (target_addr_t)target_addrs[i]);
+//       count ++;
+//     }
+
+//     // Set breakpoint at malloc_addr
+//     //struct breakpoint *malloc_break = breakfast_break(pid, (target_addr_t) addr);
+
+//     printf("Before breakfast_run\n");
+//     fflush(stdout);
+//     while (breakfast_run(pid, last_break)) {
+//       printf("In breakfast_run loop\n");
+//       fflush(stdout);
+//       last_ip = breakfast_getip(pid);
+
+//       int j;
+//       for(j = 0; j < count; j++) {
+//         if(last_ip == (void *)target_addrs[j]) break;
+//       }
+
+//       if(j == count) {
+//         printf("Unknown trap at %p\n", last_ip);
+//         fflush(stdout);
+//         last_break = NULL;
+//       } else {
+//         printf("Break at return after malloc()\n");
+//         fflush(stdout);
+//         ptrace(PTRACE_GETREGS, pid, 0, &regs);
+//         regs.rax = retval;
+//         ptrace(PTRACE_SETREGS, pid, 0, &regs);
+//         last_break = breakpoints[j];
+//       }
+//     }
+
+//     free(main_break);
+//     free(breakpoints);
+//     free(target_addrs);
+//     printf("injector: All done!\n");
+//   }
+
   return 0;
 }

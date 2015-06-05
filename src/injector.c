@@ -1,6 +1,8 @@
 #include <sys/ptrace.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
@@ -10,186 +12,296 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-#include "breakfast.h"
-#include "argparse.h"
-#include "addr_utils.h"
+#include <search.h>
+#include "../include/argparse.h"
 
-#define BUFLEN 4096
-#define MAIN "main"
+// A few interesting syscall numbers
+#define READ 0
+#define WRITE 1
+#define OPEN 2
+#define CLOSE 3
+#define FSYNC 74
+#define MKDIR 83
+#define OPENAT 257
 
+//A return value indicating we reached past the end of executable. Chosen larger than 256 so that it 
+//won't clash with most POSIX exit codes.
+#define END_OF_EXECUTABLE 400
 
-
-unsigned long long *get_target_addrs(const char *fn, const char *target) {
-  char buf[BUFLEN];
-  memset(buf, 0, BUFLEN);
-  snprintf(buf, BUFLEN - 4, "objdump -D %s | grep -E 'callq  [0-9a-f]* <%s>'", target, fn);
-
-  FILE *fp = popen(buf, "r");
-  if (fp == NULL) {
-    fprintf(stderr, "Execution of \"%s\" failed; couldn't read symtab of target!\n", buf);
-    //return NULL;
-    return NULL;
-  } else if (strlen(fn) > BUFLEN - 3) {
-    fprintf(stderr, "Target function name '%s' is too long!\n", fn);
-    pclose(fp);
-    //return NULL;
-    return NULL;
-  }
-
-
-  unsigned long long *addrs = malloc (sizeof (unsigned long long) * 1000);
-  size_t addr_idx = 0; 
-
-  // Read each line looking for the address of fn
-  char *line = NULL;
-  size_t len = 0;
-  ssize_t read;
-
-  memset(buf, 0, BUFLEN);
-
-  void *addr = NULL;
-  while ((read = getline(&line, &len, fp)) != -1) {
-    if (strstr(line, ":")) {
-      unsigned long long val;
- 
-      // This is the line for our fn: now try to read the address
-      if (strstr(line, " U ")) {
-        fprintf(stderr, "No address in the symbol table for '%s'! Make sure the target was compiled with '-static'!\n", fn);
-        continue;
-      } else {
-
-        if (sscanf(line, "%16llx", &val) <= 0) {
-          fprintf(stderr, "Couldn't parse address from line '%s'\n", line);
-          continue;
-        } 
-      }
-
-      char *start = strstr(line, ":");
-      start++;
-      char *end = strstr(line, "call");
-      *end = 0;
-
-      int byte_count = 0;
-      char *tok = strtok(start, " ");
-
-      while(tok) {
-        byte_count++;
-        tok = strtok(NULL, " ");
-      }
-
-      addrs[addr_idx] = val + byte_count - 1;
-      addr_idx ++;
-    }
-  }
-
-  pclose(fp);
-
-  // Sentinel value for end of addresses
-  addrs[addr_idx] = (unsigned long long) 0;
-  return addrs;
+/* A simple int comparison functions for checking against syscall numbers. Used for lfind. */
+int cmp_sys_num(const void* num_a, const void* num_b) {
+  return (*(int*)num_a) - (*(int*)num_b);
 }
 
-int main(int argc, char *argv[]) {
-  args_t *args = argparse_parse(argc, argv);
-  if (!args) {
-    argparse_usage();
-    exit(1);
+struct list_entry {
+    int id;         
+    struct list_entry * next;
+};
+
+struct list_entry * list_of_dirfds;
+
+struct list_entry* find_last_node() {
+  struct list_entry* cur_node;
+  if (list_of_dirfds == NULL)
+    return NULL;
+  cur_node = list_of_dirfds;
+  while (cur_node->next != NULL){
+    cur_node = cur_node->next;
   }
+  return cur_node;
+}
 
-  const char *fn = argv[1];
-  int retval = atoi(argv[2]);
-  const char *target = argv[3];
+void add_dirfd(int dirfd) {
+  struct list_entry* last_node;
+  struct list_entry* new_node = (struct list_entry *) malloc(sizeof(struct list_entry));
+  new_node->id = dirfd;
+  new_node->next = NULL;
+  last_node = find_last_node();
+  if (last_node == NULL)
+    list_of_dirfds = new_node;
+  else
+    last_node->next = new_node;
+}
 
-  int status = 0;
-  int entering = 1;
+int is_dirfd(int fd) {
+  struct list_entry* cur_node = list_of_dirfds;
+  while (cur_node != NULL) {
+    if (cur_node->id == fd)
+      return 1;
+    cur_node = cur_node->next;
+  }
+  return 0;
+}
+
+void free_dirfd_list() {
+  struct list_entry* next_node;
+  struct list_entry* cur_node = list_of_dirfds;
+  if (cur_node != NULL) {
+    next_node = cur_node->next;
+    free(cur_node);
+    cur_node = next_node;
+  }
+  return;
+}
+
+int clone_entering = 1;
+/* Get PID of cloned process.  If not process was cloned or an error occured, return -1 */
+/* pid is the process id of the current traced process */
+int trace_clone(long pid) {
+  long newpid, trace;
+  int syscall_n;
   struct user_regs_struct regs;
-
-  void *main_addr = get_fn_address(MAIN, target);
-  unsigned long long *target_addrs = get_target_addrs(fn, target);
-
-  if (!target_addrs) {
-    printf("Couldn't read address of %s from %s! Aborting.\n", fn, target);
-    exit(1);
+  ptrace( PTRACE_GETREGS, pid, 0, &regs );
+  syscall_n = regs.orig_rax;
+  if (syscall_n == 56) {
+    if (clone_entering) {
+      clone_entering = 0;
+    } else {
+      clone_entering = 1;
+      newpid = regs.rax;
+      //ptrace(PTRACE_DETACH,pid,NULL,NULL);
+      trace = ptrace(PTRACE_ATTACH,newpid,NULL,NULL);
+      ptrace( PTRACE_SYSCALL, newpid, 0, 0 );
+      if(trace == 0) {
+        //printf("\e[1;32mAttached to offspring %ld\n\e[0m", newpid);  
+        //fflush(stdout);
+        return newpid;
+      } else {
+        printf("Could not attach to the child, trace = %ld\n", trace);
+        fflush(stdout);
+        return -1;
+      }
+    }
   }
+  return -1;
+}
 
-  pid_t pid = fork();
-  if (!pid) {
-    // Child: register as tracee and run target process
-    printf("Child: execing %s!\n", target);
-    fflush(stdout);
-    ptrace(PTRACE_TRACEME, 0, 0, 0);
-    //kill(getpid(), SIGSTOP);
-    execlp(target, target, NULL);
+/* Perform a single run of tracing, skipping the first num_to_skip syscalls and injecting a fault in all those 
+   that follow. */
+int single_injection_run(args_t *args) {
+  char *target = args->target_argv[0];
+  int status = 0;
+  int syscall_n = 0;
+  int entering = 1;
+  int open_entering = 1;
+  int entry_intercepted = 0;
+  int intercepted_retval = 0;
+  long long int syscall_count = 0;
+  struct user_regs_struct regs;
+  int found_directory = 0;
+  int cloned_pid;
+  int flags;
+  int pid = fork();
+  if ( !pid ) {
+    printf("The child is running\n");
+    ptrace( PTRACE_TRACEME, 0, 0, 0 );
+    execvp( target, args->target_argv );
+  }
+  else {
+    // Print status message concerning the run.
+    printf("\nRunning ptrace injector on %s for syscalls: ", target);
+    ptrace( PTRACE_SYSCALL, pid, 0, 0 );
+    for (int i = 0; i < args->n_syscalls; i++) {
+      printf("%d, ", args->syscall_nos[i]);
+    }
+    printf("with num_to_skip %lld\n", args->num_ops);
+    wait( &status );
 
-  } else {
-    // Parent: trace child and inject breakpoints
-    printf("Parent: attaching breakfast\n");
-    fflush(stdout);
+    size_t loop_counter = 0; 
+    while ( 1 ) {
+      ptrace( PTRACE_SYSCALL, pid, 0, 0 );
+      wait( &status );
+      fflush(stdout);
 
-    struct breakpoint *last_break = NULL;
-    void *last_ip;
-
-    waitpid(pid, NULL, 0);
-
-    struct breakpoint *main_break = breakfast_break(pid, (target_addr_t) main_addr);
-
-    printf("Skip preprocess. Main function should be called.\n");
-    fflush(stdout);
-
-    // Run until main is caught
-    while(breakfast_run(pid, last_break)) {
-      last_ip = breakfast_getip(pid);
-      if(last_ip == main_addr) {
-        last_break = main_break;
+      
+      if ( WIFEXITED( status ) ) {
         break;
       }
-    } 
-
-    printf("Main is called. Now our breakpoint is to be set.\n");
-    fflush(stdout);
-
-    struct breakpoint **breakpoints = (struct breakpoint **)(malloc(1000 * sizeof(struct breakpoint *)));
-
-    int i, count = 0;
-    for(i = 0; target_addrs[i] != 0; i++) {
-      breakpoints[i] = breakfast_break(pid, (target_addr_t)target_addrs[i]);
-      count ++;
-    }
-
-    // Set breakpoint at malloc_addr
-    //struct breakpoint *malloc_break = breakfast_break(pid, (target_addr_t) addr);
-
-    printf("Before breakfast_run\n");
-    fflush(stdout);
-    while (breakfast_run(pid, last_break)) {
-      printf("In breakfast_run loop\n");
+      else { 
+        /* I'm not sure this code works as intended */
+        //sleep(1);
+        fflush(stdout);
+        loop_counter ++; 
+        if (loop_counter > 1000000) {
+          printf("TIMEOUT: Ptrace is taking too long on %s for syscall %d\n", target, syscall_n);
+          exit(-1);
+        }
+        
+      }
+      //printf("Im here! 5\n");
       fflush(stdout);
-      last_ip = breakfast_getip(pid);
-
-      int j;
-      for(j = 0; j < count; j++) {
-        if(last_ip == (void *)target_addrs[j]) break;
+      // check to see if the process has cloned itself
+      if (args->follow_clones) {
+        cloned_pid = trace_clone(pid);
+        if (cloned_pid > 0)
+          pid = cloned_pid;
       }
 
-      if(j == count) {
-        printf("Unknown trap at %p\n", last_ip);
-        fflush(stdout);
-        last_break = NULL;
+      ptrace( PTRACE_GETREGS, pid, 0, &regs );
+
+      // get syscall number
+      syscall_n = regs.orig_rax;
+
+      int* syscall_idx = NULL;
+      
+      size_t n_syscalls_idx = args->n_syscalls;
+      // only intercept the syscall we want to intercept
+      
+      if (open_entering) {
+        if ( syscall_n == OPEN) {
+          open_entering = 0;
+          flags = regs.rsi;
+          if (flags & O_DIRECTORY)
+            found_directory = 1;
+        } else if ( syscall_n == OPENAT) {
+          open_entering = 0;
+          flags = regs.rdx;
+          if (flags & O_DIRECTORY)
+            found_directory = 1;
+        } 
       } else {
-        printf("Break at return after malloc()\n");
-        fflush(stdout);
-        ptrace(PTRACE_GETREGS, pid, 0, &regs);
-        regs.rax = retval;
-        ptrace(PTRACE_SETREGS, pid, 0, &regs);
-        last_break = breakpoints[j];
+        open_entering = 1;
+        if ( syscall_n == OPEN && found_directory)
+          add_dirfd((int) regs.rax);
+        if ( syscall_n == OPENAT && found_directory)
+          add_dirfd((int) regs.rax);
+        found_directory = 0;
+      }
+      
+      if ( (syscall_idx = lfind(&syscall_n, args->syscall_nos, &n_syscalls_idx, sizeof(int), cmp_sys_num)) || entry_intercepted ) {
+        if ( entering ) {
+          // we only want to change the return value on syscall exit
+          entering = 0;
+          syscall_count++;
+          
+          if ( syscall_count > args->num_ops  && args->fail_on_entry && !(syscall_n == WRITE && regs.rdi < 3)) {
+            if (!args->fail_only_dirs || is_dirfd(regs.rdi)) {
+              ptrace( PTRACE_GETREGS, pid, 0, &regs );
+              // set it to a dummy syscall getpid
+              regs.orig_rax = 39;
+              ptrace( PTRACE_SETREGS, pid, 0, &regs );
+              entry_intercepted = 1;      
+              intercepted_retval = args->syscall_retvals[syscall_idx - args->syscall_nos];
+            }
+          }
+          
+        }
+        else {
+          entering = 1;
+          entry_intercepted = 0;
+          if (syscall_count > args->num_ops && !(syscall_n == WRITE && regs.rdi < 3)) {
+            if (!args->fail_only_dirs || is_dirfd(regs.rdi)) {
+              ptrace( PTRACE_GETREGS, pid, 0, &regs );
+              if ( args->fail_on_entry ) {
+                regs.rax = intercepted_retval;
+              } else {
+                regs.rax = args->syscall_retvals[syscall_idx - args->syscall_nos];
+              }
+              // set the return value of the syscall
+              ptrace( PTRACE_SETREGS, pid, 0, &regs );
+            }
+          }
+        }
       }
     }
-
-    free(main_break);
-    free(breakpoints);
-    free(target_addrs);
-    printf("injector: All done!\n");
+  }
+  if (syscall_count <= args->num_ops) { // If num_to_skip was so high no faults were injected.
+    return END_OF_EXECUTABLE; 
   }
 
   return 0;
+}
+
+/* Run injections progressing from faulting the first syscall, to the second, third, etc... until 
+   the runs have faulted every syscall in the execution once. */
+int full_injection_run(args_t *args) {
+  long long int current_skip = 0;
+  
+  int res = 0;
+  while (res == 0) {
+    args->num_ops = current_skip;
+    res = single_injection_run(args);
+    current_skip++;
+  }
+  return res;
+}
+
+/* Run injections progressing from faulting the first syscall to the second, third, etc... until
+   either all syscall in the execution have been faulted or all syscalls up to the input num_ops have been 
+   faulted, whichever comes first. */
+int multi_injection_run(args_t *args) {
+  for (long long int i = 0; i <= args->num_ops; i++) {
+    int res = single_injection_run(args);
+    if (res) { //End if an error w.r.t the injector's end occurs or we reach past the end of the executable.
+      return res;
+    }
+  }
+  return 0;
+}
+
+/* Launch the program. */
+int main(int argc, char *argv[]) {
+  args_t* args = argparse_parse(argc, argv);
+  if (args == NULL) {
+    return -1;
+  }
+
+  // Dispatch the run(s).
+  int rval = 0;
+  if (args->mode == run_all) {
+    rval = full_injection_run(args);
+  } else if (args->mode == run_n) {
+    rval = multi_injection_run(args);
+  } else {
+    rval = single_injection_run(args);
+  }
+
+  //Free dynamic memory used for syscall numbers and injected values.
+  argparse_destroy(args);
+
+  // END_OF_EXECUTABLE is an internal signal, not an external one.
+  if (rval == END_OF_EXECUTABLE) {
+    return 0;
+  }
+  return rval;
 }
