@@ -130,11 +130,17 @@ int single_injection_run(args_t *args, state_t *state) {
   int cloned_pid;
   int flags;
 
+  printf("single_injection_run: beginning\n");
+  fflush(0);
+
   // Start the target, begin tracing it, and wait for it to stop at the
   // first syscall
   start_target(args, state, target);
   ptrace( PTRACE_SYSCALL, state->pid, 0, 0 );
   wait( &(state->status) );
+
+  printf("single_injection_run: before primary loop\n");
+  fflush(0);
 
   // The primary tracer loop: register PTRACE_SYSCALL, wait for signal, and
   // then find out what happened
@@ -256,6 +262,8 @@ int full_injection_run(args_t *args, state_t *state) {
    either all syscall in the execution have been faulted or all syscalls up to the input num_ops have been 
    faulted, whichever comes first. */
 int multi_injection_run(args_t *args, state_t *state) {
+  printf("multi_injection_run\n");
+  fflush(0);
   for (long long int i = 0; i <= args->num_ops; i++) {
     state_reset(state);
 
@@ -281,6 +289,9 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "Failed to initialize state\n");
     return -1;
   }
+
+  printf("main: after state_init\n");
+  fflush(0);
 
   // Dispatch the run(s).
   int rval = 0;
