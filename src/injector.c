@@ -35,7 +35,6 @@ unsigned long long *get_target_addrs(const char *fn, const char *target) {
     return NULL;
   }
 
-
   unsigned long long *addrs = malloc (sizeof (unsigned long long) * 1000);
   size_t addr_idx = 0; 
 
@@ -95,9 +94,16 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
 
+
   const char *fn = argv[1];
   int retval = atoi(argv[2]);
   const char *target = argv[3];
+
+  printf("function  : %s\n", fn);
+  printf("retval : %d\n", retval);
+  printf("target : %s\n", target);
+
+
 
   int status = 0;
   int entering = 1;
