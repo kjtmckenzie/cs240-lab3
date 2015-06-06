@@ -130,17 +130,11 @@ int single_injection_run(args_t *args, state_t *state) {
   int cloned_pid;
   int flags;
 
-  printf("single_injection_run: beginning\n");
-  fflush(0);
-
   // Start the target, begin tracing it, and wait for it to stop at the
   // first syscall
   start_target(args, state, target);
   ptrace( PTRACE_SYSCALL, state->pid, 0, 0 );
   wait( &(state->status) );
-
-  printf("single_injection_run: before primary loop\n");
-  fflush(0);
 
   // The primary tracer loop: register PTRACE_SYSCALL, wait for signal, and
   // then find out what happened
@@ -156,9 +150,6 @@ int single_injection_run(args_t *args, state_t *state) {
     }
 
     // Enforce a maximum # of iterations in case tracee never terminates
-    /* I'm not sure this code works as intended */
-    //sleep(1);
-    fflush(stdout);
     loop_counter ++; 
     if (loop_counter > MAX_ITERS) {
       printf("TIMEOUT: Ptrace is taking too long on %s for syscall %d\n", target, state->syscall_n);
@@ -168,8 +159,8 @@ int single_injection_run(args_t *args, state_t *state) {
     // If we're supposed to follow cloned processes, check if that happened
     if (args->follow_clones) {
       if (trace_clones(state)) {
-        printf("Target %s clone()d; we're now tracing the child pid=%d\n", target, state->pid);
-        fflush(0);
+        //printf("Target %s clone()d; we're now tracing the child pid=%d\n", target, state->pid);
+        //fflush(0);
       } else {
         fprintf(stderr, "Target %s clone()d but we couldn't follow the child!\n", target);
         exit(1);
@@ -289,9 +280,6 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "Failed to initialize state\n");
     return -1;
   }
-
-  printf("main: after state_init\n");
-  fflush(0);
 
   // Dispatch the run(s).
   int rval = 0;

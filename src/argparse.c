@@ -258,8 +258,8 @@ static bool parse_target(args_t *args, int argc, char *argv[]) {
   char* target_argv[MAX_TARGET_ARGS];
   
   char* cur = strtok(target, " ");
-  printf("parse_target: parsed %s for target_argv[0]\n", cur);
-  fflush(0);
+  //printf("parse_target: parsed %s for target_argv[0]\n", cur);
+  //fflush(0);
   target_argv[0] = strdup(cur);
   args->target_argc = 1;
 
