@@ -95,6 +95,8 @@ state_t *state_init(args_t *args) {
 
   state_reset(state);
 
+  return state;
+
 fail:
   state_destroy(state);
   return NULL;

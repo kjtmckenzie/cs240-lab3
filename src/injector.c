@@ -145,7 +145,7 @@ int single_injection_run(args_t *args, state_t *state) {
     fflush(stdout);
 
     if ( WIFEXITED( state->status ) ) {
-      // If the tracee has exiting, don't continue tracing
+      // If the tracee has exited, don't continue tracing
       break;
     }
 
