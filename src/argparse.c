@@ -153,7 +153,7 @@ static bool parse_functions(args_t *args, char *argv[]) {
   // Read in the function names
   char* cur_fn = strtok(fn_args, INPUT_LIST_DELIM);
   while ((cur_fn != NULL) && (n_functions < MAX_SYSCALLS)) {
-    fn_buf[n_functions] = cur_fn;
+    fn_buf[n_functions] = strdup(cur_fn);
     n_functions++;
     cur_fn = strtok(NULL, INPUT_LIST_DELIM);
   }
@@ -172,7 +172,7 @@ static bool parse_functions(args_t *args, char *argv[]) {
   }
 
   // Allocate right-sized arrays and fill in "args".
-  if (!(args->fn_names = malloc(sizeof(int) * n_functions))) {
+  if (!(args->fn_names = malloc(sizeof(char *) * n_functions))) {
     fprintf(stderr, "parse_functions: Failed to allocate memory for function names\n");
     return false;
   }
@@ -374,6 +374,10 @@ void argparse_destroy(args_t *args) {
     }
 
     if (args->fn_names) {
+      for (int i = 0; i < args->n_functions; i++) {
+        free(args->fn_names[i]);
+      }
+
       free(args->fn_names);
     }
 
