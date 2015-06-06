@@ -79,6 +79,32 @@ bool state_is_dir(state_t *state, int fd) {
   return false;
 }
 
+// Allocate and fill in the fn_addrs structure
+// @return success status
+bool load_fn_call_addrs(state_t *state, args_t *args) {
+  if (!(state->fn_call_addrs = malloc(sizeof(target_addr_t *) * args->n_functions))
+      || !(state->n_calls = malloc(sizeof(size_t) * args->n_functions))) {
+    fprintf(stderr, "load_fn_addrs: malloc() failed!\n");
+    return false;
+  }
+  memset(state->fn_call_addrs, 0, sizeof(target_addr_t *) * args->n_functions);
+  memset(state->n_calls, 0, sizeof(size_t) * args->n_functions);
+
+  // For every function in args, populate fn_call_addrs and n_calls
+  const char * target = args->target_argv[0];
+  for (int i = 0; i < args->n_functions; i++) {
+    target_addr_t *addrs = get_fn_call_addrs(args->fn_names[i], target, &(state->n_calls[i]));
+    if (!addrs) {
+      fprintf(stderr, "load_fn_call_addrs: get_fn_call_addrs failed!\n");
+      return false;
+    }
+    state->fn_call_addrs[i] = addrs;
+    state->n_functions = i;
+  }
+
+  return true;
+}
+
 /**
  * Do one-time initialization and setup for a state_t struct.
  *
@@ -91,6 +117,13 @@ state_t *state_init(args_t *args) {
   } else {
     fprintf(stderr, "state_init: malloc() failed for state!\n");
     goto fail;
+  }
+
+  if (args->n_functions > 0) {
+    if (!load_fn_call_addrs(state, args)) {
+      fprintf(stderr, "state_init: load_fn_call_addrs failed!\n");
+      goto fail;
+    }
   }
 
   state_reset(state);
@@ -132,6 +165,19 @@ void state_reset(state_t *state) {
 void state_destroy(state_t *state) {
   if (state) {
     state_reset(state);
+
+    if (state->fn_call_addrs) {
+      // Free call site arrays for each function
+      for (int i = 0; i < state->n_functions; i++) {
+        if (state->fn_call_addrs[i]) {
+          free(state->fn_call_addrs[i]);
+        }
+      }
+
+      // Free outer array and lengths array
+      free(state->fn_call_addrs);
+      free(state->n_calls);
+    }
 
     free(state);
   }

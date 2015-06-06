@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <sys/user.h>
 #include <sys/reg.h>
+#include "breakfast.h"
+#include "addr_utils.h"
 #include "argparse.h"
 
 struct list_entry;
@@ -17,9 +19,18 @@ struct injector_state {
   bool entry_intercepted;       /* Did we intercept a syscall this iter? */
   bool found_directory;         /* Have we seen open() for a dir? */
 
-  int syscall_n;                 /* Most recent intercepted syscall no. */
-  int intercepted_retval;        /* Most recent intercepted retval */
-  long long int syscall_count;   /* Count of syscalls intercepted */
+  int syscall_n;                /* Most recent intercepted syscall no. */
+  int intercepted_retval;       /* Most recent intercepted retval */
+  long long int syscall_count;  /* Count of syscalls intercepted */
+
+  size_t n_functions;           /* Number of functions to intercept */
+
+  /* fn_call_addrs: length (args->n_functions) array of function callsites */
+  /* fn_call_addrs[i]: the array of call sites for args->fn_names[i] */
+  target_addr_t **fn_call_addrs;
+
+  /* n_calls[i]: length of fn_call_addrs[i] array */
+  size_t *n_calls;
 
   int pid;                       /* Pid of the tracee process */
   int status;                    /* Most recent tracee status */
