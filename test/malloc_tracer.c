@@ -42,17 +42,19 @@ int main(int argc, char *argv[]) {
     return -1;
   }
 
-  // args
+  // TODO: replace w/ argparse
   const char *fn = argv[1];
   long long int retval = atoll(argv[2]);
   char target[MAX_TARGET_LEN + 1];
   strncpy(target, argv[3], MAX_TARGET_LEN);
   int callnum = atoi (argv[4]);
 
+  // TODO: replace w/ state
   int status = 0;
-  int signum = 0;
+  int last_signum = 0;
   struct user_regs_struct regs;
 
+  // TODO: add to state struct
   // Get all addrs where fn is called in target
   size_t n_addrs = 0;
   target_addr_t *addrs = get_fn_call_addrs(fn, target, &n_addrs);
@@ -61,6 +63,7 @@ int main(int argc, char *argv[]) {
     exit(-1);
   }
 
+  // TODO: replace w/ start_target
   int pid = fork();
   if ( !pid ) {
     // Child: register as tracee and run target process
@@ -74,29 +77,30 @@ int main(int argc, char *argv[]) {
   printf("malloc_tracer: after outer wait\n");
   fflush(stdout);
 
-  struct breakpoint *last_break = NULL;
+  breakpoint_t *last_break = NULL;
   void *last_ip;
 
+  // TODO: need "run_until_main" helper
   // Run until main is caught
   target_addr_t main_addr = get_fn_address("main", target);
-  struct breakpoint *main_break = breakfast_break(pid, (target_addr_t) main_addr);
+  breakpoint_t *main_break = breakfast_create(pid, (target_addr_t) main_addr);
   printf("malloc_tracer: Skip preprocess. Main function should be called.\n");
   fflush(stdout);
   while(breakfast_run(pid, last_break)) {
-    last_ip = breakfast_getip(pid);
+    last_ip = breakfast_get_ip(pid);
     if(last_ip == main_addr) {
       last_break = main_break;
       break;
     }
   }
-
   printf("Main is called. Now our breakpoint is to be set.\n");
   fflush(stdout);
 
+  // TODO: add breakpoints to state struct
   // Insert (enabled) breakpoints at all call sites of malloc()
-  struct breakpoint **breakpoints = (struct breakpoint **) (malloc(n_addrs * sizeof(struct breakpoint *)));
+  breakpoint_t **breakpoints = (breakpoint_t **) (malloc(n_addrs * sizeof(breakpoint_t *)));
   for(int i = 0; i < n_addrs; i++) {
-    breakpoints[i] = breakfast_break(pid, addrs[i]);
+    breakpoints[i] = breakfast_create(pid, addrs[i]);
   }
 
   ptrace(PTRACE_CONT, pid, 0, 0); 
@@ -111,7 +115,8 @@ int main(int argc, char *argv[]) {
       break;
     }
 
-    last_ip = breakfast_getip(pid);
+    // TODO: add "state_get_breakpoint" helper
+    last_ip = breakfast_get_ip(pid);
     int j;
     for(j = 0; j < n_addrs; j++) {
       if(last_ip == addrs[j]) {
@@ -126,13 +131,14 @@ int main(int argc, char *argv[]) {
       printf("Unknown trap at %p\n", last_ip);
       fflush(stdout);
       // Continue tracing by forwarding the same signal we intercepted
-      signum = WSTOPSIG(status);
-      ptrace(PTRACE_CONT, pid, 0, signum);
+      last_signum = WSTOPSIG(status);
+      ptrace(PTRACE_CONT, pid, 0, last_signum);
     } else {
       printf("malloc() breakpoint\n");
       fflush(stdout);
       last_break = breakpoints[j];
 
+      // TODO: add "fault_function" helper
       ptrace(PTRACE_GETREGS, pid, 0, &regs);
       // "callq" is a 5 byte instruction, so this jumps over it and malloc()
       // is never called, and we fake the return value in %rax.
@@ -142,7 +148,7 @@ int main(int argc, char *argv[]) {
       ptrace(PTRACE_SETREGS, pid, 0, &regs);
 
       // Set to original data and move one step
-      ptrace(PTRACE_POKETEXT, pid, last_break->addr, last_break->orig_code);
+      breakfast_disable(pid, last_break);
 
       // TODO: Reset trap at address if we want to break there again!
 

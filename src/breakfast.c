@@ -1,9 +1,9 @@
 /* breakfast.c
  *
- * ptrace breakpoint implementation, borrowed from 
+ * ptrace breakpoint implementation, borrowed & extended from :
  * http://mainisusuallyafunction.blogspot.ca/2011/01/implementing-breakpoints-on-x86-linux.html
  *
- * Useable under BSD license. TODO: cite properly
+ * Useable under BSD license.
  */
 
 #include <sys/ptrace.h>
@@ -13,7 +13,6 @@
 #include <string.h>
 #include <errno.h>
 #include <stdio.h>
-#include <stdbool.h>
 #include <signal.h>
 #include "breakfast.h"
 
@@ -33,26 +32,8 @@
 #error Unsupported architecture
 #endif
 
-/* Forward declarations */
-static bool enable(pid_t pid, struct breakpoint *bp);
-static bool disable(pid_t pid, struct breakpoint *bp);
+// Forward-declaration
 static int run(pid_t pid, int cmd);
-
-/**
- * Prepare a process for breakpointing by PTRACE_ATTACH-ing to it
- *
- * @param pid Tracee process id
- */
-void breakfast_attach(pid_t pid) {
-  int status;
-  if (ptrace(PTRACE_ATTACH, pid) < 0) {
-    fprintf(stderr, "breakfast_attach: PTRACE_ATTACH failed: %s\n", strerror(errno));
-  }
-  waitpid(pid, &status, 0);  /* wait for tracee to receive SIGSTOP */
-  // if (ptrace(PTRACE_SETOPTIONS, pid, 0, PTRACE_O_TRACEEXIT) < 0) {
-  //   fprintf(stderr, "breakfast_attach: PTRACE_SETOPTIONS failed: %s\n", strerror(errno));
-  // }
-}
 
 /** 
  * Read the current instruction pointer from tracee
@@ -61,29 +42,33 @@ void breakfast_attach(pid_t pid) {
  *
  * @return Current value of tracee's instruction pointer as a target_addr_t
 */
-target_addr_t breakfast_getip(pid_t pid) {
+target_addr_t breakfast_get_ip(pid_t pid) {
   errno = 0;
   long v = ptrace(PTRACE_PEEKUSER, pid, sizeof(long)*REGISTER_IP);
   if (errno) {
-    fprintf(stderr, "breakfast_getip: PTRACE_PEEKUSER failed: %s\n", strerror(errno));
+    fprintf(stderr, "breakfast_get_ip: PTRACE_PEEKUSER failed: %s\n", strerror(errno));
   }
   return (target_addr_t) (v - TRAP_LEN);
 }
 
 /**
- * Insert a breakpoint in tracee at addr.
+ * Create a new, enabled breakpoint in tracee at addr.
  *
  * @param pid Tracee process id
  * @param addr Tracee address for breakpoint insertion 
  *
- * @return a dynamically allocated breakpoint; caller must free with breakfast_destroy
+ * @return malloc'd breakpoint or NULL on fail; caller breakfast_destroy's it
  */
-struct breakpoint *breakfast_break(pid_t pid, target_addr_t addr) {
-  struct breakpoint *bp = malloc(sizeof(struct breakpoint));
-  bp->addr = addr;
-  if (!enable(pid, bp)) {
-    fprintf(stderr, "breakfast_break: enable() failed: %s\n", strerror(errno));
+breakpoint_t *breakfast_create(pid_t pid, target_addr_t addr) {
+  breakpoint_t *bp = malloc(sizeof(breakpoint_t));
+  if (!bp) {
+    fprintf(stderr, "breakfast_create: malloc failed!\n");
+    return NULL;
   }
+  memset(bp, 0, sizeof(breakpoint_t));
+
+  bp->addr = addr;
+  breakfast_enable(pid, bp);
   return bp;
 }
 
@@ -91,15 +76,62 @@ struct breakpoint *breakfast_break(pid_t pid, target_addr_t addr) {
  * Disable a breakpoint and free its memory
  *
  * @param pid Tracee process id
- * @param bp The breakpoint to destroy, created by breakfast_break
+ * @param bp The breakpoint to destroy, created by breakfast_create
  */
-void breakfast_destroy(pid_t pid, struct breakpoint *bp) {
+void breakfast_destroy(pid_t pid, breakpoint_t *bp) {
   if (bp) {
-    if (!disable(pid, bp)) {
-      fprintf(stderr, "breakfast_destroy: disable() failed: %s\n", strerror(errno));
+    if (bp->enabled) {
+      breakfast_disable(pid, bp);
     }
     free(bp);
   }
+}
+
+/**
+ * Enable breakpoint bp by writing the trap instruction and saving old data
+ *
+ * @param pid tracee process id
+ * @param bp breakpoint 
+ *
+ * @return success status
+ */
+bool breakfast_enable(pid_t pid, struct breakpoint *bp) {
+  bool success = true;
+  if (!bp->enabled) {
+    errno = 0;
+    long orig = ptrace(PTRACE_PEEKTEXT, pid, bp->addr, 0);
+    if (errno) {
+      fprintf(stderr, "enable: PTRACE_PEEKTEXT failed: %s\n", strerror(errno));
+      success = false;
+    }
+    if (ptrace(PTRACE_POKETEXT, pid, bp->addr, (orig & TRAP_MASK) | TRAP_INST) < 0) {
+      fprintf(stderr, "enable: PTRACE_POKETEXT failed: %s\n", strerror(errno));
+      success = false;
+    }
+    bp->orig = orig;
+    bp->enabled = true;
+  }
+  return success;
+}
+
+/**
+ * Disable breakpoint bp by writing by the old value
+ *
+ * @param pid tracee process id
+ * @param bp breakpoint
+ *
+ * @return success status
+ */
+bool breakfast_disable(pid_t pid, struct breakpoint *bp) {
+  bool success = true;
+  if (bp->enabled) {
+    if (ptrace(PTRACE_POKETEXT, pid, bp->addr, bp->orig) < 0) {
+      fprintf(stderr, "disable: PTRACE_POKETEXT failed: %s\n", strerror(errno));
+      success = false;
+    }
+    bp->enabled = false;
+  }
+  return success;
 }
 
 /**
@@ -110,16 +142,16 @@ void breakfast_destroy(pid_t pid, struct breakpoint *bp) {
  *
  * @return 0 If tracee exited, 1 if it stopped at a breakpoint 
  */
-int breakfast_run(pid_t pid, struct breakpoint *bp) {
+int breakfast_run(pid_t pid, breakpoint_t *bp) {
   if (bp) {
     /* POKEUSER: write word at an addr in the USER area, where registers are */
     ptrace(PTRACE_POKEUSER, pid, sizeof(long)*REGISTER_IP, bp->addr);
 
     // We're currently stopped at "bp". Disable breakpoint, single-step, then re-enable
-    disable(pid, bp);
+    breakfast_disable(pid, bp);
     if (!run(pid, PTRACE_SINGLESTEP))
       return 0;
-    enable(pid, bp);
+    breakfast_enable(pid, bp);
   }
   return run(pid, PTRACE_CONT);
 }
@@ -139,7 +171,7 @@ static int run(pid_t pid, int cmd) {
 
     if (WIFSTOPPED(status)) {
       last_sig = WSTOPSIG(status);
-      target_addr_t ip = breakfast_getip(pid);
+      target_addr_t ip = breakfast_get_ip(pid);
       fprintf(stderr, "breakfast: run: current_ip=%p\n", ip);
       psignal(last_sig, "breakfast: run: last_sig");
       if (last_sig == SIGTRAP) {
@@ -153,31 +185,4 @@ static int run(pid_t pid, int cmd) {
       }
     }
   }
-}
-
-// Actually insert the breakpoint by writing the break instruction and saving the old value
-static bool enable(pid_t pid, struct breakpoint *bp) {
-  bool success = true;
-  errno = 0;
-  long orig = ptrace(PTRACE_PEEKTEXT, pid, bp->addr, 0);
-  if (errno) {
-    fprintf(stderr, "enable: PTRACE_PEEKTEXT failed: %s\n", strerror(errno));
-    success = false;
-  }
-  if (ptrace(PTRACE_POKETEXT, pid, bp->addr, (orig & TRAP_MASK) | TRAP_INST) < 0) {
-    fprintf(stderr, "enable: PTRACE_POKETEXT failed: %s\n", strerror(errno));
-    success = false;
-  }
-  bp->orig_code = orig;
-  return success;
-}
-
-// Undo a breakpoint by writing back the old value
-static bool disable(pid_t pid, struct breakpoint *bp) {
-  bool success = true;
-  if (ptrace(PTRACE_POKETEXT, pid, bp->addr, bp->orig_code) < 0) {
-    fprintf(stderr, "disable: PTRACE_POKETEXT failed: %s\n", strerror(errno));
-    success = false;
-  }
-  return success;
 }
