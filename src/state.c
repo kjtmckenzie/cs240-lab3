@@ -119,11 +119,7 @@ void state_reset(state_t *state) {
   state->intercepted_retval = 0;
   state->syscall_count = 0;
 
-  struct user_regs_struct regs;
-
-  int cloned_pid;
-  int flags;
-  int traced_pid;
+  state->pid = 0;
 }
 
 /**
