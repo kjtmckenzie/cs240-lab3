@@ -123,6 +123,68 @@ static void trace_open_dirs(state_t *state) {
   }
 }
 
+/**
+ * Intercept the current syscall (state->syscall_n) iff
+ *     - We've registered to intercept this call
+ *   OR
+ *     - We're in the "entry intercepted" state, meaning that we just saw the
+ *   start of a syscall to intercept, and this iteration should be it exiting.
+ *
+ * @param syscall_idx set to the result of lfind
+ *
+ * @return true iff we should intercept this syscall
+ */
+static bool should_intercept_syscall(args_t *args, state_t *state, int **syscall_idx) {
+  size_t n_syscalls_idx = args->n_syscalls;
+  // Not-NULL if this a syscall we've registered to trace
+  *syscall_idx = lfind(&(state->syscall_n), args->syscall_nos, &n_syscalls_idx, sizeof(int), cmp_sys_num);
+  return (*syscall_idx) || state->entry_intercepted;
+}
+
+static void intercept_entering(args_t *args, state_t *state, int *syscall_idx) {
+  // Entering the syscall. Might only want to change retval on exit, though
+  state->entering = false;
+  state->syscall_count++;
+
+  if ( state->syscall_count > args->num_ops && args->fail_on_entry
+       && !(state->syscall_n == WRITE && state->regs.rdi < 3)) {
+    // We've skipped enough calls, we're supposed to fail on entry,
+    // and we're not stopping a write to stdout or stderr
+
+    if (!args->fail_only_dirs || state_is_dir(state, state->regs.rdi)) {
+      ptrace( PTRACE_GETREGS, state->pid, 0, &(state->regs) );
+      // set it to a dummy syscall getpid
+      state->regs.orig_rax = GETPID;
+      ptrace( PTRACE_SETREGS, state->pid, 0, &(state->regs) );
+      state->entry_intercepted = true;
+      state->intercepted_retval = args->syscall_retvals[syscall_idx - args->syscall_nos];
+    }
+  }
+}
+
+static void intercept_exiting(args_t *args, state_t *state, int *syscall_idx) {
+  // Exiting the syscall. Now we'll fake the return value if we're at
+  // the proper count (as determined by the 'skip N' argument)
+  state->entering = true;
+  state->entry_intercepted = false;
+  if (state->syscall_count > args->num_ops && !(state->syscall_n == WRITE && state->regs.rdi < 3)) {
+    // We've skipped enough calls, and this isn't a WRITE to stdout or stderr;
+    // so we proceed with modifying the return value
+
+    if (!args->fail_only_dirs || state_is_dir(state, state->regs.rdi)) {
+      ptrace( PTRACE_GETREGS, state->pid, 0, &(state->regs) );
+      if ( args->fail_on_entry ) {
+        state->regs.rax = state->intercepted_retval;
+      } else {
+        state->regs.rax = args->syscall_retvals[syscall_idx - args->syscall_nos];
+      }
+
+      // set the return value of the syscall
+      ptrace( PTRACE_SETREGS, state->pid, 0, &(state->regs) );
+    }
+  }
+}
+
 /* Perform a single run of tracing, skipping the first num_to_skip syscalls and injecting a fault in all those 
    that follow. */
 int single_injection_run(args_t *args, state_t *state) {
@@ -172,55 +234,15 @@ int single_injection_run(args_t *args, state_t *state) {
     // Get syscall number & verify it's one we're interested in intercepting
     state->syscall_n = state->regs.orig_rax;
     int* syscall_idx = NULL;
-    size_t n_syscalls_idx = args->n_syscalls;
 
     // Track state related to tracee OPEN syscalls
     trace_open_dirs(state);
 
-    if ( (syscall_idx = lfind(&(state->syscall_n), args->syscall_nos, &n_syscalls_idx, sizeof(int), cmp_sys_num)) ||
-         state->entry_intercepted ) {
-      // The syscall # was one we were trying to intercept!
-
+    if (should_intercept_syscall(args, state, &syscall_idx)) {
       if ( state->entering ) {
-        // Entering the syscall. Only want to change retval on exit, though
-        state->entering = false;
-        state->syscall_count++;
-
-        // TODO: need a comment clarifying this condition! My head hurts!
-        if ( state->syscall_count > args->num_ops  && 
-             args->fail_on_entry && 
-             !(state->syscall_n == WRITE && state->regs.rdi < 3)) {
-          if (!args->fail_only_dirs || state_is_dir(state, state->regs.rdi)) {
-            ptrace( PTRACE_GETREGS, state->pid, 0, &(state->regs) );
-            // set it to a dummy syscall getpid
-            state->regs.orig_rax = GETPID;
-            ptrace( PTRACE_SETREGS, state->pid, 0, &(state->regs) );
-            state->entry_intercepted = true;
-            state->intercepted_retval = args->syscall_retvals[syscall_idx - args->syscall_nos];
-          }
-        }
+        intercept_entering(args, state, syscall_idx);
       } else {
-        // Exiting the syscall. Now we'll fake the return value if we're at
-        // the proper count (as determined by the 'skip N' argument)
-
-        state->entering = true;
-        state->entry_intercepted = false;
-        if (state->syscall_count > args->num_ops && !(state->syscall_n == WRITE && state->regs.rdi < 3)) {
-          // We've skipped enough calls and this isn't a WRITE to stdout or stderr;
-          // so we proceed with modifying the return value
-
-          if (!args->fail_only_dirs || state_is_dir(state, state->regs.rdi)) {
-            ptrace( PTRACE_GETREGS, state->pid, 0, &(state->regs) );
-            if ( args->fail_on_entry ) {
-              state->regs.rax = state->intercepted_retval;
-            } else {
-              state->regs.rax = args->syscall_retvals[syscall_idx - args->syscall_nos];
-            }
-
-            // set the return value of the syscall
-            ptrace( PTRACE_SETREGS, state->pid, 0, &(state->regs) );
-          }
-        }
+        intercept_exiting(args, state, syscall_idx);
       }
     }
   }  // END while (1)
