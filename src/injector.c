@@ -15,6 +15,7 @@
 #include <search.h>
 #include "argparse.h"
 #include "state.h"
+#include "backtrace.h"
 
 // A few interesting syscall numbers
 #define READ 0
@@ -60,6 +61,7 @@ bool trace_clones(state_t *state) {
       ptrace( PTRACE_SYSCALL, newpid, 0, 0 );
       if(trace == 0) {
         state->pid = newpid;
+        // IAW FIXME: need to update the backtracer here!
         return true;
       } else {
         printf("Could not attach to the child, trace = %ld\n", trace);
@@ -88,6 +90,8 @@ static void start_target(args_t *args, state_t *state, const char *target) {
       printf("%d, ", args->syscall_nos[i]);
     }
     printf("with num_to_skip %lld\n", args->num_ops);
+
+    state_prep_backtrace(state, target, pid);
   }
 }
 
@@ -227,6 +231,7 @@ int single_injection_run(args_t *args, state_t *state) {
 
     if ( WIFEXITED( state->status ) ) {
       // If the tracee has exited, don't continue tracing
+      backtrace_execute(state->bt);
       break;
     }
 
@@ -234,6 +239,7 @@ int single_injection_run(args_t *args, state_t *state) {
     loop_counter ++; 
     if (loop_counter > MAX_ITERS) {
       printf("TIMEOUT: Ptrace is taking too long on %s for syscall %d\n", target, state->syscall_n);
+      backtrace_execute(state->bt);
       exit(-1);
     }
 

@@ -79,6 +79,10 @@ bool state_is_dir(state_t *state, int fd) {
   return false;
 }
 
+void state_prep_backtrace(state_t *state, const char *target, pid_t pid) {
+  state->bt = backtrace_init(target, pid);
+}
+
 // Allocate and fill in the fn_addrs structure
 // @return success status
 bool load_fn_call_addrs(state_t *state, args_t *args) {
@@ -177,6 +181,10 @@ void state_destroy(state_t *state) {
       // Free outer array and lengths array
       free(state->fn_call_addrs);
       free(state->n_calls);
+    }
+
+    if (state->bt) {
+      backtrace_destroy(state->bt);
     }
 
     free(state);

@@ -5,7 +5,7 @@ CFLAGS = -std=gnu99
 INCLUDES = -Iinclude
 
 # Other C source files for injector
-SRCS = src/backtrace.c src/injector.c src/state.c src/argparse.c src/addr_utils.c
+SRCS = src/injector.c src/state.c src/argparse.c src/addr_utils.c src/backtrace.c
 
 MAIN = injector
 

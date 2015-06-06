@@ -7,6 +7,7 @@
 #include "breakfast.h"
 #include "addr_utils.h"
 #include "argparse.h"
+#include "backtrace.h"
 
 struct list_entry;
 
@@ -35,11 +36,15 @@ struct injector_state {
   int pid;                       /* Pid of the tracee process */
   int status;                    /* Most recent tracee status */
   struct user_regs_struct regs;  /* Most recent tracee register values */
+
+  struct backtracer *bt;
 };
 typedef struct injector_state state_t;
 
 bool state_add_dir(state_t *state, int fd);
 bool state_is_dir(state_t * state, int fd);
+
+void state_prep_backtrace(state_t *state, const char *target, pid_t pid);
 
 state_t *state_init(args_t *args);
 void state_reset(state_t *state);
