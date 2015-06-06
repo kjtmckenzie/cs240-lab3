@@ -17,25 +17,28 @@
 #define MAX_TARGET_ARGS 64
 
 // Argument argv indices
-#define SYSCALLS    1
-#define SYS_RETVALS 2
-#define FUNCTIONS   3
-#define FN_RETVALS  4
-#define FAIL_ENTRY  5
+#define SYSCALLS      1
+#define SYS_RETVALS   2
+#define FUNCTIONS     3
+#define FN_RETVALS    4
+#define FAIL_ENTRY    5
 #define FOLLOW_CLONES 6
-#define ONLY_DIRS   7
-#define RUN_MODE    8
-#define NUM_OPS     9
-#define TARGET      10
+#define ONLY_DIRS     7
+#define AFTER_MAIN    8
+#define RUN_MODE      9
+#define NUM_OPS      10
+#define TARGET       11
 
 /**
  * Prints the expected argument structure and order.
  */
 void argparse_usage() {
-  printf("ptrace() Fault Injector\n");
-  printf("=======================\n");
+  printf("\n");
+  printf("Ptrace Fault Injector\n");
+  printf("=====================\n");
   printf("Usage:\n");
-  printf("    injector syscalls sys_retvals functions fn_retvals fail_on_entry follow_clones only_dirs run_mode num target\n");
+  printf("    injector syscalls sys_retvals functions fn_retvals fail_on_entry follow_clones only_dirs after_main run_mode num target\n");
+  printf("\n");
   printf("Where:\n");
   printf("    syscalls: Syscall numbers to intercept.\n");
   printf("              Single number, comma-separated values, or -1 to intercept none.\n");
@@ -49,16 +52,21 @@ void argparse_usage() {
   printf("                   0 to fail syscall after it has returned\n");
   printf("    follow_clones: 1 to follow processes cloned/forked by the traced process.\n");
   printf("                   0 to follow no subprocesses besides the initial traced process.\n");
-  printf("    fail_only_dirs: 1 to have filesystem-based syscalls fail only for directories.\n");
-  printf("                    0 to have filesystem-based syscalls fail on any ops when scheduled.\n");
+  printf("    only_dirs: 1 to have filesystem-based syscalls fail only for directories.\n");
+  printf("               0 to have filesystem-based syscalls fail on any ops when scheduled.\n");
+  printf("    after_main: 1 to only begin faulting after entering main() of the target\n");
+  printf("                0 to begin faulting immediately\n");
   printf("    run_mode: Controls how faults are injected from run to run. Valid modes are:\n");
   printf("              \"skip\": Injector will skip \'num\' syscalls before injecting.\n");
   printf("              \"run\": Injector runs \'num\' times. Run i skips the first i syscalls before injection.\n");
   printf("              \"full\": Injector \n");
   printf("    num: The number of syscall skips or runs; ignored if run_mode is \"full\".\n");
   printf("    target: Path to target executable. Include cmdline args within a single string.\n");
-  printf("Example:\n");
-  printf("    $ bin/injector  1,2,3  0,-1,1  malloc,time  0,1234  1  0  1  skip  5  'bin/getuid_target myArg'\n");
+  printf("\n");
+  printf("Examples:\n");
+  printf("    Fault getuid() to return -1:\n");
+  printf("      $ ./bin/injector 102 -1 0 0 1 0 0 0 skip 0 'bin/getuid_target'\n");
+  printf("\n");
 }
 
 /* A simple int comparison functions for checking against syscall numbers. Used for lfind. */
@@ -181,25 +189,31 @@ static bool parse_functions(args_t *args, char *argv[]) {
 }
 
 static bool parse_flags(args_t *args, char *argv[]) {
-    if (strcmp(argv[FAIL_ENTRY], "0") && strcmp(argv[FAIL_ENTRY], "1")) {
-      return false;
-    }
-    int fail_on_entry = atoi(argv[FAIL_ENTRY]);
-    args->fail_on_entry = fail_on_entry;
+  if (strcmp(argv[FAIL_ENTRY], "0") && strcmp(argv[FAIL_ENTRY], "1")) {
+    fprintf(stderr, "parse_flags: Expected 0 or 1 for fail_entry, got %s\n", argv[FAIL_ENTRY]);
+    return false;
+  }
+  args->fail_on_entry = atoi(argv[FAIL_ENTRY]);
 
-    if (strcmp(argv[FOLLOW_CLONES], "0") && strcmp(argv[FOLLOW_CLONES], "1")) {
-      return false;
-    }
-    int follow_clones = atoi(argv[FOLLOW_CLONES]);
-    args->follow_clones = follow_clones;
+  if (strcmp(argv[FOLLOW_CLONES], "0") && strcmp(argv[FOLLOW_CLONES], "1")) {
+    fprintf(stderr, "parse_flags: Expected 0 or 1 for follow_clones, got %s\n", argv[FOLLOW_CLONES]);
+    return false;
+  }
+  args->follow_clones = atoi(argv[FOLLOW_CLONES]);
 
-    if (strcmp(argv[ONLY_DIRS], "0") && strcmp(argv[ONLY_DIRS], "1")) {
-      return false;
-    }
-    int fail_only_dirs = atoi(argv[ONLY_DIRS]);
-    args->fail_only_dirs = fail_only_dirs;
+  if (strcmp(argv[ONLY_DIRS], "0") && strcmp(argv[ONLY_DIRS], "1")) {
+    fprintf(stderr, "parse_flags: Expected 0 or 1 for only_dirs, got %s\n", argv[ONLY_DIRS]);
+    return false;
+  }
+  args->fail_only_dirs = atoi(argv[ONLY_DIRS]);
 
-    return true;
+  if (strcmp(argv[AFTER_MAIN], "0") && strcmp(argv[AFTER_MAIN], "1")) {
+    fprintf(stderr, "parse_flags: Expected 0 or 1 for after_main, got %s\n", argv[AFTER_MAIN]);
+    return false;
+  }
+  args->after_main = atoi(argv[AFTER_MAIN]);
+
+  return true;
 }
 
 static bool parse_run_mode(args_t *args, char *argv[]) {
@@ -294,6 +308,7 @@ static bool parse_target(args_t *args, int argc, char *argv[]) {
 args_t *argparse_parse(int argc, char*argv[]) {
   args_t *args = NULL;
   if (argc < TARGET + 1) {
+    fprintf(stderr, "Wrong number of arguments (got %d; need %d)\n", argc, TARGET + 1);
     argparse_usage();
     goto fail;
   }
