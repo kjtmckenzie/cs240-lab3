@@ -1,3 +1,4 @@
 bin/
 Vagrantfile
 .vagrant
+.DS_Store

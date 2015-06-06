@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <search.h>
-#include "../include/argparse.h"
+#include "argparse.h"
 
 #define MAX_SYSCALLS 430
 
@@ -19,12 +19,14 @@
 // Argument argv indices
 #define SYSCALLS    1
 #define SYS_RETVALS 2
-#define FAIL_ENTRY  3
-#define FOLLOW_CLONES 4
-#define ONLY_DIRS   5
-#define RUN_MODE    6
-#define NUM_OPS     7
-#define TARGET      8
+#define FUNCTIONS   3
+#define FN_RETVALS  4
+#define FAIL_ENTRY  5
+#define FOLLOW_CLONES 6
+#define ONLY_DIRS   7
+#define RUN_MODE    8
+#define NUM_OPS     9
+#define TARGET      10
 
 /**
  * Prints the expected argument structure and order.
@@ -33,12 +35,16 @@ void argparse_usage() {
   printf("ptrace() Fault Injector\n");
   printf("=======================\n");
   printf("Usage:\n");
-  printf("    injector syscalls sys_retvals fail_on_entry run_mode num target\n");
+  printf("    injector syscalls sys_retvals functions fn_retvals fail_on_entry follow_clones only_dirs run_mode num target\n");
   printf("Where:\n");
   printf("    syscalls: Syscall numbers to intercept.\n");
-  printf("               Single number, comma-separated values, or -1 to intercept none.\n");
+  printf("              Single number, comma-separated values, or -1 to intercept none.\n");
   printf("    sys_retvals: System call integer return values to inject.\n");
   printf("                 Singleton or comma-separated values.\n");
+  printf("    functions: libc function names to intercept.\n");
+  printf("               Single name, comma-separated names, or 0 to intercept none.\n");
+  printf("    fn_retvals: Function return values to inject.\n");
+  printf("                Singleton or comma-separated values.\n");
   printf("    fail_on_entry: 1 to fail syscall on entry, or\n");
   printf("                   0 to fail syscall after it has returned\n");
   printf("    follow_clones: 1 to follow processes cloned/forked by the traced process.\n");
@@ -52,7 +58,7 @@ void argparse_usage() {
   printf("    num: The number of syscall skips or runs; ignored if run_mode is \"full\".\n");
   printf("    target: Path to target executable. Include cmdline args within a single string.\n");
   printf("Example:\n");
-  printf("    $ bin/injector  1,2,3  0,-1,1  1  skip  5  'bin/getuid_target myArg'\n");
+  printf("    $ bin/injector  1,2,3  0,-1,1  malloc,time  0,1234  1  0  1  skip  5  'bin/getuid_target myArg'\n");
 }
 
 /* A simple int comparison functions for checking against syscall numbers. Used for lfind. */
@@ -64,6 +70,12 @@ static int cmp_sys_num(const void* num_a, const void* num_b) {
 *  something bad happened in the parsing. Note that this functiona allocates dynamic memory
 *  to store the syscall numbers array and the return value arrays. */
 static bool parse_syscalls(args_t *args, char *argv[]) {
+  if (!strcmp(argv[SYSCALLS], "-1")) {
+    // No syscalls will be faulted
+    args->n_syscalls = 0;
+    return true;
+  }
+
   int sys_buf[MAX_SYSCALLS];
   long long int ret_buf[MAX_SYSCALLS];
   size_t n_syscalls = 0;
@@ -115,22 +127,79 @@ static bool parse_syscalls(args_t *args, char *argv[]) {
   return true;
 }
 
-static bool parse_fail_on_entry(args_t *args, char *argv[]) {
+static bool parse_functions(args_t *args, char *argv[]) {
+  if (!strcmp(argv[FUNCTIONS], "-1")) {
+    // No functions will be faulted
+    args->n_functions = 0;
+    return true;
+  }
+
+  char *fn_buf[MAX_SYSCALLS];
+  long long int ret_buf[MAX_SYSCALLS];
+  size_t n_functions = 0;
+  size_t n_retvals = 0;
+
+  char* fn_args = argv[FUNCTIONS];
+  char* ret_args = argv[FN_RETVALS];
+
+  // Read in the function names
+  char* cur_fn = strtok(fn_args, INPUT_LIST_DELIM);
+  while ((cur_fn != NULL) && (n_functions < MAX_SYSCALLS)) {
+    fn_buf[n_functions] = cur_fn;
+    n_functions++;
+    cur_fn = strtok(NULL, INPUT_LIST_DELIM);
+  }
+
+  // Read in the return values.
+  char* cur_ret = strtok(ret_args, INPUT_LIST_DELIM);
+  while ((cur_ret != NULL) && (n_retvals < n_functions)) {
+    int rval = atoi(cur_ret);
+    ret_buf[n_retvals] = rval;
+    n_retvals++;
+    cur_ret = strtok(NULL, INPUT_LIST_DELIM);
+  }
+  if ((n_retvals < n_functions) || (cur_ret && (*cur_ret))) {
+    fprintf(stderr, "parse_functions: Invalid retval list -- number of values should match number of target functions.\n");
+    return false;
+  }
+
+  // Allocate right-sized arrays and fill in "args".
+  if (!(args->fn_names = malloc(sizeof(int) * n_functions))) {
+    fprintf(stderr, "parse_functions: Failed to allocate memory for function names\n");
+    return false;
+  }
+  if (!(args->fn_retvals = malloc(sizeof(long long int) * n_retvals))) {
+    fprintf(stderr, "parse_functions: Failed to allocate memory for function return values\n");
+    return false;
+  }
+  memcpy(args->fn_names, fn_buf, sizeof(int) * n_functions);
+  memcpy(args->fn_retvals, ret_buf, sizeof(long long int) * n_retvals);
+
+  args->n_functions = n_functions;
+
+  return true;
+}
+
+static bool parse_flags(args_t *args, char *argv[]) {
+    if (!strcmp(argv[FAIL_ENTRY], "0") || !strcmp(argv[FAIL_ENTRY], "1")) {
+      return false;
+    }
     int fail_on_entry = atoi(argv[FAIL_ENTRY]);
     args->fail_on_entry = fail_on_entry;
+
+    if (!strcmp(argv[FOLLOW_CLONES], "0") || !strcmp(argv[FOLLOW_CLONES], "1")) {
+      return false;
+    }
+    int follow_clones = atoi(argv[FOLLOW_CLONES]);
+    args->follow_clones = follow_clones;
+
+    if (!strcmp(argv[ONLY_DIRS], "0") || !strcmp(argv[ONLY_DIRS], "1")) {
+      return false;
+    }
+    int fail_only_dirs = atoi(argv[ONLY_DIRS]);
+    args->fail_only_dirs = fail_only_dirs;
+
     return true;
-}
-
-static bool parse_follow_clones(args_t *args, char *argv[]) {
-  int follow_clones = atoi(argv[FOLLOW_CLONES]);
-  args->follow_clones = follow_clones;
-  return true;
-}
-
-static bool parse_fail_only_dirs(args_t *args, char *argv[]) {
-  int fail_only_dirs = atoi(argv[ONLY_DIRS]);
-  args->fail_only_dirs = fail_only_dirs;
-  return true;
 }
 
 static bool parse_run_mode(args_t *args, char *argv[]) {
@@ -240,20 +309,15 @@ args_t *argparse_parse(int argc, char*argv[]) {
     goto fail;
   }
 
-  // Parse the "fail_on_entry" arg
-  if (!parse_fail_on_entry(args, argv)) {
-    fprintf(stderr, "argparse_parse: parse_fail_on_entry failed!\n");
+  // Parse "functions" and "fn_retvals", each CSVs
+  if (!parse_functions(args, argv)) {
+    fprintf(stderr, "argparse_parse: parse_functions failed!\n");
     goto fail;
   }
 
-  if (!parse_follow_clones(args, argv)) {
-    fprintf(stderr, "argparse_parse: parse_follow_clones failed!\n");
-    goto fail;
-  }
-
-  // Parse the "fail_on_entry" arg
-  if (!parse_fail_only_dirs(args, argv)) {
-    fprintf(stderr, "argparse_parse: parse_fail_only_dirs failed!\n");
+  // Parse the "fail_on_entry", "follow_clones", and "only_dirs" flags
+  if (!parse_flags(args, argv)) {
+    fprintf(stderr, "argparse_parse: parse_flags failed!\n");
     goto fail;
   }
 
@@ -290,6 +354,14 @@ void argparse_destroy(args_t *args) {
 
     if (args->syscall_retvals) {
       free(args->syscall_retvals);
+    }
+
+    if (args->fn_names) {
+      free(args->fn_names);
+    }
+
+    if (args->fn_retvals) {
+      free(args->fn_retvals);
     }
 
     if (args->target_argv) {
