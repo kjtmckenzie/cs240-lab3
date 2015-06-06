@@ -12,19 +12,18 @@ struct injector_state {
   struct list_entry *dir_fds;   /* Linked list of tracee's directory fds */
 
   bool clone_entering;          /* Are we entering or exiting a clone call? */
-  bool entering;
+  bool entering;                /* Entering or exiting a syscall? */
   bool open_entering;           /* Entering or exiting open()? */
   bool entry_intercepted;       /* Did we intercept a syscall this iter? */
-  bool found_directory;
+  bool found_directory;         /* Have we seen open() for a dir? */
 
-  int status;                    /* Most recent tracee status */
   int syscall_n;                 /* Most recent intercepted syscall no. */
   int intercepted_retval;        /* Most recent intercepted retval */
   long long int syscall_count;   /* Count of syscalls intercepted */
 
-  struct user_regs_struct regs;  /* Most recent tracee register values */
-
   int pid;                       /* Pid of the tracee process */
+  int status;                    /* Most recent tracee status */
+  struct user_regs_struct regs;  /* Most recent tracee register values */
 };
 typedef struct injector_state state_t;
 

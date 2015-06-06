@@ -32,10 +32,12 @@
  * Prints the expected argument structure and order.
  */
 void argparse_usage() {
-  printf("ptrace() Fault Injector\n");
-  printf("=======================\n");
+  printf("\n");
+  printf("Ptrace Fault Injector\n");
+  printf("=====================\n");
   printf("Usage:\n");
   printf("    injector syscalls sys_retvals functions fn_retvals fail_on_entry follow_clones only_dirs run_mode num target\n");
+  printf("\n");
   printf("Where:\n");
   printf("    syscalls: Syscall numbers to intercept.\n");
   printf("              Single number, comma-separated values, or -1 to intercept none.\n");
@@ -57,8 +59,11 @@ void argparse_usage() {
   printf("              \"full\": Injector \n");
   printf("    num: The number of syscall skips or runs; ignored if run_mode is \"full\".\n");
   printf("    target: Path to target executable. Include cmdline args within a single string.\n");
-  printf("Example:\n");
-  printf("    $ bin/injector  1,2,3  0,-1,1  malloc,time  0,1234  1  0  1  skip  5  'bin/getuid_target myArg'\n");
+  printf("\n");
+  printf("Examples:\n");
+  printf("    Fault getuid() to return -1:\n");
+  printf("      $ ./bin/injector 102 -1 0 0 1 0 0 skip 0 'bin/getuid_target'\n");
+  printf("\n");
 }
 
 /* A simple int comparison functions for checking against syscall numbers. Used for lfind. */
@@ -182,18 +187,21 @@ static bool parse_functions(args_t *args, char *argv[]) {
 
 static bool parse_flags(args_t *args, char *argv[]) {
     if (strcmp(argv[FAIL_ENTRY], "0") && strcmp(argv[FAIL_ENTRY], "1")) {
+      fprintf(stderr, "parse_flags: Expected 0 or 1 for fail_entry, got %s\n", argv[FAIL_ENTRY]);
       return false;
     }
     int fail_on_entry = atoi(argv[FAIL_ENTRY]);
     args->fail_on_entry = fail_on_entry;
 
     if (strcmp(argv[FOLLOW_CLONES], "0") && strcmp(argv[FOLLOW_CLONES], "1")) {
+      fprintf(stderr, "parse_flags: Expected 0 or 1 for follow_clones, got %s\n", argv[FOLLOW_CLONES]);
       return false;
     }
     int follow_clones = atoi(argv[FOLLOW_CLONES]);
     args->follow_clones = follow_clones;
 
     if (strcmp(argv[ONLY_DIRS], "0") && strcmp(argv[ONLY_DIRS], "1")) {
+      fprintf(stderr, "parse_flags: Expected 0 or 1 for only_dirs, got %s\n", argv[ONLY_DIRS]);
       return false;
     }
     int fail_only_dirs = atoi(argv[ONLY_DIRS]);

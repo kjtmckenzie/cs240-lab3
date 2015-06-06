@@ -73,7 +73,7 @@ bool trace_clones(state_t *state) {
   return true;
 }
 
-  // Start the target process - the child process never returns 
+  // Start the target process - the child process never returns from this
 static void start_target(args_t *args, state_t *state, const char *target) {
   int pid = fork();
   if ( !pid ) {
@@ -123,6 +123,11 @@ static void trace_open_dirs(state_t *state) {
   }
 }
 
+// True iff this syscall is a WRITE to stdout or stderr: don't intercept those!
+static bool is_std_write(state_t *state) {
+  return state->syscall_n == WRITE && state->regs.rdi <= STDERR_FILENO;
+}
+
 /**
  * Intercept the current syscall (state->syscall_n) iff
  *     - We've registered to intercept this call
@@ -130,30 +135,40 @@ static void trace_open_dirs(state_t *state) {
  *     - We're in the "entry intercepted" state, meaning that we just saw the
  *   start of a syscall to intercept, and this iteration should be it exiting.
  *
- * @param syscall_idx set to the result of lfind
+ * @param args injector command line arguments
+ * @param state injector_state struct
+ * @param syscall_idx pointer to int*, set to the result of lfind
  *
  * @return true iff we should intercept this syscall
  */
 static bool should_intercept_syscall(args_t *args, state_t *state, int **syscall_idx) {
   size_t n_syscalls_idx = args->n_syscalls;
-  // Not-NULL if this a syscall we've registered to trace
+  // syscall_idx will be Not-NULL if this a syscall we've registered to trace
   *syscall_idx = lfind(&(state->syscall_n), args->syscall_nos, &n_syscalls_idx, sizeof(int), cmp_sys_num);
   return (*syscall_idx) || state->entry_intercepted;
 }
 
+/**
+ * Handle interception for the case where the syscall is entering.
+ *
+ * @param args injector command line arguments
+ * @param state injector_state struct
+ * @param syscall_idx pointer to the syscall no. in args we're intercepting
+ */
 static void intercept_entering(args_t *args, state_t *state, int *syscall_idx) {
   // Entering the syscall. Might only want to change retval on exit, though
   state->entering = false;
   state->syscall_count++;
 
   if ( state->syscall_count > args->num_ops && args->fail_on_entry
-       && !(state->syscall_n == WRITE && state->regs.rdi < 3)) {
+       && !is_std_write(state)) {
     // We've skipped enough calls, we're supposed to fail on entry,
     // and we're not stopping a write to stdout or stderr
 
     if (!args->fail_only_dirs || state_is_dir(state, state->regs.rdi)) {
+      // The actual injection: replace the syscall # on the tracee's stack
+      // with a dummy # of our choice (GETPID), effectively aborting the call
       ptrace( PTRACE_GETREGS, state->pid, 0, &(state->regs) );
-      // set it to a dummy syscall getpid
       state->regs.orig_rax = GETPID;
       ptrace( PTRACE_SETREGS, state->pid, 0, &(state->regs) );
       state->entry_intercepted = true;
@@ -162,24 +177,32 @@ static void intercept_entering(args_t *args, state_t *state, int *syscall_idx) {
   }
 }
 
+/**
+ * Handle interception where the syscall is exiting.
+ *
+ * @param args injector command line arguments
+ * @param state injector_state struct
+ * @param syscall_idx pointer to the syscall no. in args we're intercepting
+ */
 static void intercept_exiting(args_t *args, state_t *state, int *syscall_idx) {
-  // Exiting the syscall. Now we'll fake the return value if we're at
-  // the proper count (as determined by the 'skip N' argument)
+  // Reset entering/exiting state for next entry
   state->entering = true;
   state->entry_intercepted = false;
-  if (state->syscall_count > args->num_ops && !(state->syscall_n == WRITE && state->regs.rdi < 3)) {
+
+  if (state->syscall_count > args->num_ops && !is_std_write(state)) {
     // We've skipped enough calls, and this isn't a WRITE to stdout or stderr;
-    // so we proceed with modifying the return value
 
     if (!args->fail_only_dirs || state_is_dir(state, state->regs.rdi)) {
       ptrace( PTRACE_GETREGS, state->pid, 0, &(state->regs) );
       if ( args->fail_on_entry ) {
+        // We failed it on entry; just restore the original retval now
         state->regs.rax = state->intercepted_retval;
       } else {
+        // Replace the return value with the one specified in args
         state->regs.rax = args->syscall_retvals[syscall_idx - args->syscall_nos];
       }
 
-      // set the return value of the syscall
+      // Set the return value of the syscall
       ptrace( PTRACE_SETREGS, state->pid, 0, &(state->regs) );
     }
   }
@@ -188,12 +211,8 @@ static void intercept_exiting(args_t *args, state_t *state, int *syscall_idx) {
 /* Perform a single run of tracing, skipping the first num_to_skip syscalls and injecting a fault in all those 
    that follow. */
 int single_injection_run(args_t *args, state_t *state) {
-  char *target = args->target_argv[0];
-  int cloned_pid;
-  int flags;
-
-  // Start the target, begin tracing it, and wait for it to stop at the
-  // first syscall
+  // Start the target, begin tracing it, and wait for the first stop
+  const char *target = args->target_argv[0];
   start_target(args, state, target);
   ptrace( PTRACE_SYSCALL, state->pid, 0, 0 );
   wait( &(state->status) );
@@ -220,18 +239,14 @@ int single_injection_run(args_t *args, state_t *state) {
 
     // If we're supposed to follow cloned processes, check if that happened
     if (args->follow_clones) {
-      if (trace_clones(state)) {
-        //printf("Target %s clone()d; we're now tracing the child pid=%d\n", target, state->pid);
-        //fflush(0);
-      } else {
+      if (!trace_clones(state)) {
         fprintf(stderr, "Target %s clone()d but we couldn't follow the child!\n", target);
         exit(1);
       }
     }
 
-    ptrace( PTRACE_GETREGS, state->pid, 0, &(state->regs) );
-
     // Get syscall number & verify it's one we're interested in intercepting
+    ptrace( PTRACE_GETREGS, state->pid, 0, &(state->regs) );
     state->syscall_n = state->regs.orig_rax;
     int* syscall_idx = NULL;
 
@@ -275,8 +290,6 @@ int full_injection_run(args_t *args, state_t *state) {
    either all syscall in the execution have been faulted or all syscalls up to the input num_ops have been 
    faulted, whichever comes first. */
 int multi_injection_run(args_t *args, state_t *state) {
-  printf("multi_injection_run\n");
-  fflush(0);
   for (long long int i = 0; i <= args->num_ops; i++) {
     state_reset(state);
 
@@ -294,6 +307,7 @@ int multi_injection_run(args_t *args, state_t *state) {
 int main(int argc, char *argv[]) {
   args_t* args = argparse_parse(argc, argv);
   if (args == NULL) {
+    // argparse prints its own failure message
     return -1;
   }
 
@@ -322,6 +336,7 @@ int main(int argc, char *argv[]) {
   // END_OF_EXECUTABLE is an internal signal, not an external one.
   if (rval == END_OF_EXECUTABLE) {
     return 0;
+  } else {
+    return rval;
   }
-  return rval;
 }
