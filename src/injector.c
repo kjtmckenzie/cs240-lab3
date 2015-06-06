@@ -145,14 +145,11 @@ int single_injection_run(args_t *args, state_t *state) {
     fflush(stdout);
 
     if ( WIFEXITED( state->status ) ) {
-      // If the tracee has exiting, don't continue tracing
+      // If the tracee has exited, don't continue tracing
       break;
     }
 
     // Enforce a maximum # of iterations in case tracee never terminates
-    /* I'm not sure this code works as intended */
-    //sleep(1);
-    fflush(stdout);
     loop_counter ++; 
     if (loop_counter > MAX_ITERS) {
       printf("TIMEOUT: Ptrace is taking too long on %s for syscall %d\n", target, state->syscall_n);
@@ -162,8 +159,8 @@ int single_injection_run(args_t *args, state_t *state) {
     // If we're supposed to follow cloned processes, check if that happened
     if (args->follow_clones) {
       if (trace_clones(state)) {
-        printf("Target %s clone()d; we're now tracing the child pid=%d\n", target, state->pid);
-        fflush(0);
+        //printf("Target %s clone()d; we're now tracing the child pid=%d\n", target, state->pid);
+        //fflush(0);
       } else {
         fprintf(stderr, "Target %s clone()d but we couldn't follow the child!\n", target);
         exit(1);
@@ -256,6 +253,8 @@ int full_injection_run(args_t *args, state_t *state) {
    either all syscall in the execution have been faulted or all syscalls up to the input num_ops have been 
    faulted, whichever comes first. */
 int multi_injection_run(args_t *args, state_t *state) {
+  printf("multi_injection_run\n");
+  fflush(0);
   for (long long int i = 0; i <= args->num_ops; i++) {
     state_reset(state);
 

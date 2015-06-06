@@ -181,19 +181,19 @@ static bool parse_functions(args_t *args, char *argv[]) {
 }
 
 static bool parse_flags(args_t *args, char *argv[]) {
-    if (!strcmp(argv[FAIL_ENTRY], "0") || !strcmp(argv[FAIL_ENTRY], "1")) {
+    if (strcmp(argv[FAIL_ENTRY], "0") && strcmp(argv[FAIL_ENTRY], "1")) {
       return false;
     }
     int fail_on_entry = atoi(argv[FAIL_ENTRY]);
     args->fail_on_entry = fail_on_entry;
 
-    if (!strcmp(argv[FOLLOW_CLONES], "0") || !strcmp(argv[FOLLOW_CLONES], "1")) {
+    if (strcmp(argv[FOLLOW_CLONES], "0") && strcmp(argv[FOLLOW_CLONES], "1")) {
       return false;
     }
     int follow_clones = atoi(argv[FOLLOW_CLONES]);
     args->follow_clones = follow_clones;
 
-    if (!strcmp(argv[ONLY_DIRS], "0") || !strcmp(argv[ONLY_DIRS], "1")) {
+    if (strcmp(argv[ONLY_DIRS], "0") && strcmp(argv[ONLY_DIRS], "1")) {
       return false;
     }
     int fail_only_dirs = atoi(argv[ONLY_DIRS]);
@@ -258,6 +258,8 @@ static bool parse_target(args_t *args, int argc, char *argv[]) {
   char* target_argv[MAX_TARGET_ARGS];
   
   char* cur = strtok(target, " ");
+  //printf("parse_target: parsed %s for target_argv[0]\n", cur);
+  //fflush(0);
   target_argv[0] = strdup(cur);
   args->target_argc = 1;
 

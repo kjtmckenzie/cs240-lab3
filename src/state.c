@@ -87,13 +87,15 @@ bool state_is_dir(state_t *state, int fd) {
 state_t *state_init(args_t *args) {
   state_t *state = NULL;
   if ((state = malloc(sizeof(state_t)))) {
-    memset(args, 0, sizeof(state_t));
+    memset(state, 0, sizeof(state_t));
   } else {
     fprintf(stderr, "state_init: malloc() failed for state!\n");
     goto fail;
   }
 
   state_reset(state);
+
+  return state;
 
 fail:
   state_destroy(state);
