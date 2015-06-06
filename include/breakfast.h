@@ -5,7 +5,11 @@
 
 /* This typedef reminds us not to deference the tracee addr in the tracer process */
 typedef void *target_addr_t;
-struct breakpoint;
+
+struct breakpoint {
+  target_addr_t addr;  /* The breakpoint address in the tracee */
+  long orig_code;      /* The original word at that address */
+};
 
 void breakfast_attach(pid_t pid);
 target_addr_t breakfast_getip(pid_t pid);

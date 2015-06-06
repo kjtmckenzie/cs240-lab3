@@ -33,11 +33,6 @@
 #error Unsupported architecture
 #endif
 
-struct breakpoint {
-  target_addr_t addr;  /* The breakpoint address in the tracee */
-  long orig_code;      /* The original word at that address */
-};
-
 /* Forward declarations */
 static bool enable(pid_t pid, struct breakpoint *bp);
 static bool disable(pid_t pid, struct breakpoint *bp);
@@ -84,7 +79,6 @@ target_addr_t breakfast_getip(pid_t pid) {
  * @return a dynamically allocated breakpoint; caller must free with breakfast_destroy
  */
 struct breakpoint *breakfast_break(pid_t pid, target_addr_t addr) {
-  fprintf(stderr, "breakfast_break: inserting breakpoint @ %p for pid=%d\n", addr, pid);
   struct breakpoint *bp = malloc(sizeof(struct breakpoint));
   bp->addr = addr;
   if (!enable(pid, bp)) {
@@ -130,35 +124,6 @@ int breakfast_run(pid_t pid, struct breakpoint *bp) {
   return run(pid, PTRACE_CONT);
 }
 
-/* --- Below here private to breakfast.c --- */
-
-// Actually insert the breakpoint by writing the break instruction and saving the old value
-static bool enable(pid_t pid, struct breakpoint *bp) {
-  bool success = true;
-  errno = 0;
-  long orig = ptrace(PTRACE_PEEKTEXT, pid, bp->addr, 0);
-  if (errno) {
-    fprintf(stderr, "enable: PTRACE_PEEKTEXT failed: %s\n", strerror(errno));
-    success = false;
-  }
-  if (ptrace(PTRACE_POKETEXT, pid, bp->addr, (orig & TRAP_MASK) | TRAP_INST) < 0) {
-    fprintf(stderr, "enable: PTRACE_POKETEXT failed: %s\n", strerror(errno));
-    success = false;
-  }
-  bp->orig_code = orig;
-  return success;
-}
-
-// Undo a breakpoint by writing back the old value
-static bool disable(pid_t pid, struct breakpoint *bp) {
-  bool success = true;
-  if (ptrace(PTRACE_POKETEXT, pid, bp->addr, bp->orig_code) < 0) {
-    fprintf(stderr, "disable: PTRACE_POKETEXT failed: %s\n", strerror(errno));
-    success = false;
-  }
-  return success;
-}
-
 // cmd: Either PTRACE_CONT or PTRACE_SINGLESTEP
 // return: 0 if tracee exited; 1 if tracee hit breakpoint
 static int run(pid_t pid, int cmd) {
@@ -188,4 +153,31 @@ static int run(pid_t pid, int cmd) {
       }
     }
   }
+}
+
+// Actually insert the breakpoint by writing the break instruction and saving the old value
+static bool enable(pid_t pid, struct breakpoint *bp) {
+  bool success = true;
+  errno = 0;
+  long orig = ptrace(PTRACE_PEEKTEXT, pid, bp->addr, 0);
+  if (errno) {
+    fprintf(stderr, "enable: PTRACE_PEEKTEXT failed: %s\n", strerror(errno));
+    success = false;
+  }
+  if (ptrace(PTRACE_POKETEXT, pid, bp->addr, (orig & TRAP_MASK) | TRAP_INST) < 0) {
+    fprintf(stderr, "enable: PTRACE_POKETEXT failed: %s\n", strerror(errno));
+    success = false;
+  }
+  bp->orig_code = orig;
+  return success;
+}
+
+// Undo a breakpoint by writing back the old value
+static bool disable(pid_t pid, struct breakpoint *bp) {
+  bool success = true;
+  if (ptrace(PTRACE_POKETEXT, pid, bp->addr, bp->orig_code) < 0) {
+    fprintf(stderr, "disable: PTRACE_POKETEXT failed: %s\n", strerror(errno));
+    success = false;
+  }
+  return success;
 }
