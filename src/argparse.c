@@ -84,6 +84,9 @@ static bool parse_syscalls(args_t *args, char *argv[]) {
     return true;
   }
 
+  // Set runtype to syscalls - may get overwritten by parse_functions later!
+  args->r_type = r_syscall;
+
   int sys_buf[MAX_SYSCALLS];
   long long int ret_buf[MAX_SYSCALLS];
   size_t n_syscalls = 0;
@@ -141,6 +144,8 @@ static bool parse_functions(args_t *args, char *argv[]) {
     args->n_functions = 0;
     return true;
   }
+
+  args->r_type = r_function;
 
   char *fn_buf[MAX_SYSCALLS];
   long long int ret_buf[MAX_SYSCALLS];

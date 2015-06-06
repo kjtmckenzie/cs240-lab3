@@ -8,11 +8,20 @@ typedef enum {skip_n,
               run_all}
 injector_mode_t;
 
+typedef enum {r_syscall,
+              r_function}
+run_type_t;
+
+
 struct injector_args {
+    run_type_t r_type;
+
+    /* IF SYSCALL */
     size_t n_syscalls;      /* Length of syscall_nos array */
     int *syscall_nos;       /* Array of syscall #s to inject */
     long long int *syscall_retvals;   /* Array of corresponding return values */
 
+    /* IF FUNCTION */
     size_t n_functions;     /* Length of fn_names array */
     char **fn_names;        /* Array of library function calls to intercept */
     int *fn_retvals;        /* Array of return values for intercepted functions */
