@@ -222,6 +222,9 @@ static void intercept_exiting(args_t *args, state_t *state, int *syscall_idx) {
 /* Perform a single run of tracing, skipping the first num_to_skip syscalls and injecting a fault in all those 
    that follow. */
 int single_injection_run_syscall(args_t *args, state_t *state) {
+  printf("single_injection_run_syscall: beginning\n");
+  fflush(stdout);
+
   // Start the target, begin tracing it, and wait for the first stop
   const char *target = args->target_argv[0];
   start_target(args, state, target);
@@ -284,6 +287,9 @@ int single_injection_run_syscall(args_t *args, state_t *state) {
 }
 
 int single_injection_run_fn(args_t *args, state_t *state, int fn_idx) {
+  const char *fn = args->fn_names[fn_idx];
+  printf("single_injection_run_fn: beginning for %s\n", fn);
+  fflush(stdout);
 
   int last_signum = 0;
   struct user_regs_struct regs;
@@ -391,8 +397,10 @@ int single_injection_run_fn(args_t *args, state_t *state, int fn_idx) {
 /* Run injections progressing from faulting the first syscall, to the second, third, etc... until 
    the runs have faulted every syscall in the execution once. */
 int full_injection_run_syscall(args_t *args, state_t *state) {
+  printf("full_injection_run_syscall: beginning\n");
+  fflush(stdout);
   long long int current_skip = 0;
-  
+
   int res = 0;
   while (res == 0) {
     args->num_ops = current_skip;
@@ -408,6 +416,8 @@ int full_injection_run_syscall(args_t *args, state_t *state) {
    either all syscall in the execution have been faulted or all syscalls up to the input num_ops have been 
    faulted, whichever comes first. */
 int multi_injection_run_syscall(args_t *args, state_t *state) {
+  printf("multi_injection_run_syscall: beginning\n");
+  fflush(stdout);
   for (long long int i = 0; i <= args->num_ops; i++) {
     state_reset(state);
 
@@ -424,13 +434,14 @@ int multi_injection_run_syscall(args_t *args, state_t *state) {
 /* Launch the program. */
 int main(int argc, char *argv[]) {
   args_t* args = argparse_parse(argc, argv);
-  if (args == NULL) {
-    // argparse prints its own failure message
+  if (!args) {
+    // argparse prints its own (extremely verbose) failure message
     return -1;
   }
 
   state_t *state = state_init(args);
-  if (state == NULL) {
+  //state_dump(state, stdout);
+  if (!state) {
     fprintf(stderr, "Failed to initialize state\n");
     return -1;
   }

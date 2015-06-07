@@ -84,6 +84,35 @@ void state_prep_backtrace(state_t *state, const char *target, pid_t pid) {
   state->bt = backtrace_init(target, pid);
 }
 
+// TODO: this is not 100% complete: needs dir_fds and fn_call_addrs
+// and maybe something for 'regs'?
+void state_dump(state_t *state, FILE *fd) {
+  fprintf(fd, "state_dump: writing injector state\n");
+  fprintf(fd, "==================================\n");
+  if (state) {
+    fprintf(fd, "  clone_entering: %s\n", state->clone_entering ? "true" : "false");
+    fprintf(fd, "  entering: %s\n", state->entering ? "true" : "false");
+    fprintf(fd, "  open_entering: %s\n", state->open_entering ? "true" : "false");
+    fprintf(fd, "  entry_intercepted: %s\n", state->entry_intercepted ? "true" : "false");
+    fprintf(fd, "  found_directory: %s\n", state->found_directory ? "true" : "false");
+    fprintf(fd, "\n");
+
+    fprintf(fd, "  syscall_n: %d\n", state->syscall_n);
+    fprintf(fd, "  intercepted_retval: %d\n", state->intercepted_retval);
+    fprintf(fd, "  syscall_count: %lld\n", state->syscall_count);
+    fprintf(fd, "\n");
+
+    fprintf(fd, "  n_functions: %u\n", (unsigned int) state->n_functions);
+    fprintf(fd, "\n");
+
+    fprintf(fd, "  pid: %d\n", state->pid);
+    fprintf(fd, "  status: %d\n", state->status);
+    fprintf(fd, "\n");
+  } else {
+    fprintf(fd, "state was NULL!\n");
+  }
+}
+
 // Allocate and fill in the fn_addrs structure
 // @return success status
 bool load_fn_call_addrs(state_t *state, args_t *args) {
@@ -104,7 +133,6 @@ bool load_fn_call_addrs(state_t *state, args_t *args) {
       return false;
     }
     state->fn_call_addrs[i] = addrs;
-    state->n_functions = i;
   }
 
   return true;
@@ -124,6 +152,7 @@ state_t *state_init(args_t *args) {
     goto fail;
   }
 
+  state->n_functions = args->n_functions;
   if (args->n_functions > 0) {
     if (!load_fn_call_addrs(state, args)) {
       fprintf(stderr, "state_init: load_fn_call_addrs failed!\n");

@@ -67,6 +67,8 @@ void argparse_usage() {
   printf("Examples:\n");
   printf("    Fault getuid() to return -1:\n");
   printf("      $ ./bin/injector 102 -1 -1 0 1 0 0 0 skip 0 'bin/getuid_target'\n");
+  printf("    Fault malloc() to return NULL:\n");
+  printf("      $ ./bin/injector -1 -1 malloc 0 1 0 0 1 skip 0 'bin/malloc_target'\n");
   printf("\n");
 }
 
