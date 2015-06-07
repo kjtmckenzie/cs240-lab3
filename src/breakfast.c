@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <signal.h>
 #include "breakfast.h"
+#include "debug_utils.h"
 
 #if defined(__i386)
 #define REGISTER_IP EIP
@@ -47,7 +48,7 @@ target_addr_t breakfast_get_ip(pid_t pid) {
   errno = 0;
   long v = ptrace(PTRACE_PEEKUSER, pid, sizeof(long)*REGISTER_IP);
   if (errno) {
-    fprintf(stderr, "breakfast_get_ip: PTRACE_PEEKUSER failed: %s\n", strerror(errno));
+    debug("breakfast_get_ip: PTRACE_PEEKUSER failed: %s\n", strerror(errno));
   }
   return (target_addr_t) (v - TRAP_LEN);
 }
@@ -63,7 +64,7 @@ target_addr_t breakfast_get_ip(pid_t pid) {
 breakpoint_t *breakfast_create(pid_t pid, target_addr_t addr) {
   breakpoint_t *bp = malloc(sizeof(breakpoint_t));
   if (!bp) {
-    fprintf(stderr, "breakfast_create: malloc failed!\n");
+    debug( "breakfast_create: malloc failed!\n");
     return NULL;
   }
   memset(bp, 0, sizeof(breakpoint_t));
@@ -102,11 +103,11 @@ bool breakfast_enable(pid_t pid, struct breakpoint *bp) {
     errno = 0;
     long orig = ptrace(PTRACE_PEEKTEXT, pid, bp->addr, 0);
     if (errno) {
-      fprintf(stderr, "enable: PTRACE_PEEKTEXT failed: %s\n", strerror(errno));
+      debug("enable: PTRACE_PEEKTEXT failed: %s\n", strerror(errno));
       success = false;
     }
     if (ptrace(PTRACE_POKETEXT, pid, bp->addr, (orig & TRAP_MASK) | TRAP_INST) < 0) {
-      fprintf(stderr, "enable: PTRACE_POKETEXT failed: %s\n", strerror(errno));
+      debug("enable: PTRACE_POKETEXT failed: %s\n", strerror(errno));
       success = false;
     }
     bp->orig = orig;
@@ -127,7 +128,7 @@ bool breakfast_disable(pid_t pid, struct breakpoint *bp) {
   bool success = true;
   if (bp->enabled) {
     if (ptrace(PTRACE_POKETEXT, pid, bp->addr, bp->orig) < 0) {
-      fprintf(stderr, "disable: PTRACE_POKETEXT failed: %s\n", strerror(errno));
+      debug("disable: PTRACE_POKETEXT failed: %s\n", strerror(errno));
       success = false;
     }
     bp->enabled = false;
@@ -166,19 +167,19 @@ static int run(pid_t pid, int cmd) {
     waitpid(pid, &status, 0);
 
     if (WIFEXITED(status)) {
-      fprintf(stderr, "breakfast: run: child exited with status=%d\n", WEXITSTATUS(status));
+      debug("breakfast: run: child exited with status=%d\n", WEXITSTATUS(status));
       return 0;
     }
 
     if (WIFSTOPPED(status)) {
       last_sig = WSTOPSIG(status);
       target_addr_t ip = breakfast_get_ip(pid);
-      fprintf(stderr, "breakfast: run: current_ip=%p\n", ip);
+      debug("breakfast: run: current_ip=%p\n", ip);
       psignal(last_sig, "breakfast: run: last_sig");
       if (last_sig == SIGTRAP) {
         event = (status >> 16) & 0xffff;
         if (event == PTRACE_EVENT_EXIT) {
-          fprintf(stderr, "breakfast: run: tracee exited\n");
+          debug("breakfast: run: tracee exited\n");
           return 0;
         } else {
           return 1;
