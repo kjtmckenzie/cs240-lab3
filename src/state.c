@@ -80,8 +80,8 @@ bool state_is_dir(state_t *state, int fd) {
   return false;
 }
 
-void state_prep_backtrace(state_t *state, const char *target, pid_t pid) {
-  state->bt = backtrace_init(target, pid);
+void state_prep_backtrace(state_t *state, const char *target) {
+  state->bt = backtrace_init(target, state->pid);
 }
 
 // TODO: this is not 100% complete: needs dir_fds and fn_call_addrs

@@ -44,7 +44,7 @@ typedef struct injector_state state_t;
 bool state_add_dir(state_t *state, int fd);
 bool state_is_dir(state_t * state, int fd);
 
-void state_prep_backtrace(state_t *state, const char *target, pid_t pid);
+void state_prep_backtrace(state_t *state, const char *target);
 void state_dump(state_t *state, FILE *f);
 
 state_t *state_init(args_t *args);

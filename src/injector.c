@@ -268,6 +268,9 @@ int single_injection_run_syscall(args_t *args, state_t *state) {
   // then find out what happened
   size_t loop_counter = 0; 
   while ( 1 ) {
+    // FIXME: PTRACE_SYSCALL makes everything look like a SIGTRAP and breaks
+   // backtrace functionality! Is there a way to recover the original signal #?
+   // Using PTRACE_CONT makes the backtracing work, but breaks syscall interception...
     ptrace( PTRACE_SYSCALL, state->pid, 0, 0 );
     wait( &(state->status) );
     fflush(stdout);

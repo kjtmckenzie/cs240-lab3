@@ -13,7 +13,6 @@ all: $(MAIN)
 	$(CC) $(CFLAGS) test/getuid_target.c -o bin/getuid_target
 	$(CC) $(CFLAGS) test/fork_target.c -o bin/fork_target
 	$(CC) $(CFLAGS) -static test/malloc_target.c -o bin/malloc_target 
-	$(CC) $(CFLAGS) $(INCLUDES) src/utils.c src/breakfast.c test/malloc_tracer.c -o bin/malloc_tracer
 	$(CC) $(CFLAGS) $(INCLUDES) src/backtrace.c test/backtrace_sample.c -o bin/backtrace_sample
 	$(CC) $(CFLAGS) test/segfault_target.c -o bin/segfault_target
 
