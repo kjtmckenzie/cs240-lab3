@@ -223,6 +223,26 @@ static void intercept_exiting(args_t *args, state_t *state, int *syscall_idx) {
   }
 }
 
+/* Makes a breakpoint at the main function of child process, continues execution 
+   until it is hit.  */
+void run_until_main (const char* target, state_t *state, 
+                     void **last_ip, breakpoint_t *last_break) {
+
+  // Run until main is caught
+  target_addr_t main_addr = get_fn_address("main", target);
+  breakpoint_t *main_break = breakfast_create(state->pid, (target_addr_t) main_addr);
+  debug("malloc_tracer: Skip preprocess. Main function should be called.\n");
+  while(breakfast_run(state->pid, last_break)) {
+    *last_ip = breakfast_get_ip(state->pid);
+    if(*last_ip == main_addr) {
+      last_break = main_break;
+      break;
+    }
+  }
+  debug("Main is called. Now our breakpoint is to be set.\n");
+  fflush(stderr);
+}
+
 /* Perform a single run of tracing, skipping the first num_to_skip syscalls and injecting a fault in all those 
    that follow. */
 int single_injection_run_syscall(args_t *args, state_t *state) {
@@ -234,6 +254,15 @@ int single_injection_run_syscall(args_t *args, state_t *state) {
   start_target(args, state, target);
   ptrace( PTRACE_SYSCALL, state->pid, 0, 0 );
   wait( &(state->status) );
+
+  breakpoint_t *last_break = NULL;
+  void *last_ip;
+
+  if (args->after_main == true) {
+    /* Wait till main gets called */
+    run_until_main (target, state, &last_ip, last_break);
+    free(last_break);
+  } 
 
   // The primary tracer loop: register PTRACE_SYSCALL, wait for signal, and
   // then find out what happened
@@ -290,6 +319,8 @@ int single_injection_run_syscall(args_t *args, state_t *state) {
   return 0;
 }
 
+/* Perform a single run of tracing, skipping the first num_to_skip function calls and injecting a fault in all those 
+   that follow. */
 int single_injection_run_fn(args_t *args, state_t *state, int fn_idx) {
   const char *fn = args->fn_names[fn_idx];
   debug("single_injection_run_fn: beginning for %s\n", fn);
@@ -313,21 +344,10 @@ int single_injection_run_fn(args_t *args, state_t *state, int fn_idx) {
   breakpoint_t *last_break = NULL;
   void *last_ip;
 
-  // TODO: need "run_until_main" helper
-  // Run until main is caught
-  target_addr_t main_addr = get_fn_address("main", target);
-  breakpoint_t *main_break = breakfast_create(state->pid, (target_addr_t) main_addr);
-  debug("malloc_tracer: Skip preprocess. Main function should be called.\n");
-  fflush(stdout);
-  while(breakfast_run(state->pid, last_break)) {
-    last_ip = breakfast_get_ip(state->pid);
-    if(last_ip == main_addr) {
-      last_break = main_break;
-      break;
-    }
-  }
-  debug("Main is called. Now our breakpoint is to be set.\n");
-  fflush(stderr);
+  if (args->after_main == true) {
+    /* Wait till main gets called */
+    run_until_main (target, state, &last_ip, last_break);
+  } 
 
   // TODO: add breakpoints to state struct
   // Insert (enabled) breakpoints at all call sites of malloc()
@@ -362,13 +382,11 @@ int single_injection_run_fn(args_t *args, state_t *state, int fn_idx) {
 
     if(j == state->n_calls[fn_idx]) {
       debug("Unknown trap at %p\n", last_ip);
-      fflush(stdout);
       // Continue tracing by forwarding the same signal we intercepted
       last_signum = WSTOPSIG(state->status);
       ptrace(PTRACE_CONT, state->pid, 0, last_signum);
     } else {
       debug("breakpoint\n");
-      fflush(stdout);
       last_break = breakpoints[j];
 
       // TODO: add "fault_function" helper
@@ -389,8 +407,7 @@ int single_injection_run_fn(args_t *args, state_t *state, int fn_idx) {
     }
   }
 
-  printf("injector: All done!\n");
-  free(main_break);
+  free(last_break);
   free(breakpoints);
 
   return 0;  
