@@ -46,7 +46,7 @@ void argparse_usage() {
   printf("    sys_retvals: System call integer return values to inject.\n");
   printf("                 Singleton or comma-separated values.\n");
   printf("    functions: libc function names to intercept.\n");
-  printf("               Single name, comma-separated names, or 0 to intercept none.\n");
+  printf("               Single name, comma-separated names, or -1 to intercept none.\n");
   printf("    fn_retvals: Function return values to inject.\n");
   printf("                Singleton or comma-separated values.\n");
   printf("    fail_on_entry: 1 to fail syscall on entry, or\n");
