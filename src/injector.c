@@ -258,7 +258,7 @@ int single_injection_run_syscall(args_t *args, state_t *state) {
   breakpoint_t *last_break = NULL;
   void *last_ip;
 
-  if (args->after_main == true) {
+  if (args->after_main) {
     /* Wait till main gets called */
     run_until_main (target, state, &last_ip, last_break);
     free(last_break);
@@ -347,7 +347,7 @@ int single_injection_run_fn(args_t *args, state_t *state, int fn_idx) {
   breakpoint_t *last_break = NULL;
   void *last_ip;
 
-  if (args->after_main == true) {
+  if (args->after_main) {
     /* Wait till main gets called */
     run_until_main (target, state, &last_ip, last_break);
   } 
