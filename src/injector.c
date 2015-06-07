@@ -15,6 +15,7 @@
 #include <search.h>
 #include "argparse.h"
 #include "state.h"
+#include "breakfast.h"
 
 // A few interesting syscall numbers
 #define READ 0
@@ -210,7 +211,7 @@ static void intercept_exiting(args_t *args, state_t *state, int *syscall_idx) {
 
 /* Perform a single run of tracing, skipping the first num_to_skip syscalls and injecting a fault in all those 
    that follow. */
-int single_inject_run_syscall(args_t *args, state_t *state) {
+int single_injection_run_syscall(args_t *args, state_t *state) {
   // Start the target, begin tracing it, and wait for the first stop
   const char *target = args->target_argv[0];
   start_target(args, state, target);
@@ -270,24 +271,14 @@ int single_inject_run_syscall(args_t *args, state_t *state) {
   return 0;
 }
 
-int single_injection_run_fn(args_t *args, state_t *state) {
-  // TODO: replace w/ state
-  int status = 0;
+int single_injection_run_fn(args_t *args, state_t *state, int fn_idx) {
+
   int last_signum = 0;
   struct user_regs_struct regs;
+  const char *target = args->target_argv[0];
 
-  // TODO: add to state struct
-  // Get all addrs where fn is called in target
-  size_t n_addrs = 0;
-  target_addr_t *addrs = get_fn_call_addrs(fn, target, &n_addrs);
-  if (!addrs) {
-    printf("get_fn_call_addrs failed\n");
-    exit(-1);
-  }
-
-  // TODO: replace w/ start_target
-  int pid = fork();
-  if ( !pid ) {
+  state->pid = fork();
+  if ( !state->pid ) {
     // Child: register as tracee and run target process
     printf("Child: execing %s!\n", target);
     fflush(stdout);
@@ -295,7 +286,7 @@ int single_injection_run_fn(args_t *args, state_t *state) {
     execlp(target, target, NULL);  // never returns
   }
 
-  wait( &status );
+  wait( &state->status );
   printf("malloc_tracer: after outer wait\n");
   fflush(stdout);
 
@@ -305,11 +296,11 @@ int single_injection_run_fn(args_t *args, state_t *state) {
   // TODO: need "run_until_main" helper
   // Run until main is caught
   target_addr_t main_addr = get_fn_address("main", target);
-  breakpoint_t *main_break = breakfast_create(pid, (target_addr_t) main_addr);
+  breakpoint_t *main_break = breakfast_create(state->pid, (target_addr_t) main_addr);
   printf("malloc_tracer: Skip preprocess. Main function should be called.\n");
   fflush(stdout);
-  while(breakfast_run(pid, last_break)) {
-    last_ip = breakfast_get_ip(pid);
+  while(breakfast_run(state->pid, last_break)) {
+    last_ip = breakfast_get_ip(state->pid);
     if(last_ip == main_addr) {
       last_break = main_break;
       break;
@@ -320,28 +311,28 @@ int single_injection_run_fn(args_t *args, state_t *state) {
 
   // TODO: add breakpoints to state struct
   // Insert (enabled) breakpoints at all call sites of malloc()
-  breakpoint_t **breakpoints = (breakpoint_t **) (malloc(n_addrs * sizeof(breakpoint_t *)));
-  for(int i = 0; i < n_addrs; i++) {
-    breakpoints[i] = breakfast_create(pid, addrs[i]);
+  breakpoint_t **breakpoints = (breakpoint_t **) (malloc(state->n_calls[0] * sizeof(breakpoint_t *)));
+  for(int i = 0; i < state->n_calls[fn_idx]; i++) {
+    breakpoints[i] = breakfast_create(state->pid, state->fn_call_addrs[0][i]);
   }
 
-  ptrace(PTRACE_CONT, pid, 0, 0); 
+  ptrace(PTRACE_CONT, state->pid, 0, 0); 
   while ( 1 ) {
     printf("malloc_tracer: loop\n");
     fflush(stdout);
-    wait( &status );
+    wait( &state->status );
 
-    if (WIFEXITED(status) || WIFSIGNALED(status)) {
+    if (WIFEXITED(state->status) || WIFSIGNALED(state->status)) {
       printf("malloc_tracer: breaking\n");
       fflush(stdout);
       break;
     }
 
     // TODO: add "state_get_breakpoint" helper
-    last_ip = breakfast_get_ip(pid);
+    last_ip = breakfast_get_ip(state->pid);
     int j;
-    for(j = 0; j < n_addrs; j++) {
-      if(last_ip == addrs[j]) {
+    for(j = 0; j < state->n_calls[fn_idx]; j++) {
+      if(last_ip == state->fn_call_addrs[fn_idx][j]) {
         // Stopped at a breakpoint of ours?
         printf("malloc_tracer: last_ip=%p was in addrs\n", last_ip);
         fflush(stdout);
@@ -349,55 +340,45 @@ int single_injection_run_fn(args_t *args, state_t *state) {
       }
     }
 
-    if(j == n_addrs) {
+    if(j == state->n_calls[fn_idx]) {
       printf("Unknown trap at %p\n", last_ip);
       fflush(stdout);
       // Continue tracing by forwarding the same signal we intercepted
-      last_signum = WSTOPSIG(status);
-      ptrace(PTRACE_CONT, pid, 0, last_signum);
+      last_signum = WSTOPSIG(state->status);
+      ptrace(PTRACE_CONT, state->pid, 0, last_signum);
     } else {
       printf("malloc() breakpoint\n");
       fflush(stdout);
       last_break = breakpoints[j];
 
       // TODO: add "fault_function" helper
-      ptrace(PTRACE_GETREGS, pid, 0, &regs);
+      ptrace(PTRACE_GETREGS, state->pid, 0, &regs);
       // "callq" is a 5 byte instruction, so this jumps over it and malloc()
       // is never called, and we fake the return value in %rax.
       // This is gross - surely there is a more robust way to skip the call?
       regs.rip += 5;
-      regs.rax = retval;
-      ptrace(PTRACE_SETREGS, pid, 0, &regs);
+      regs.rax = args->fn_retvals[fn_idx];
+      ptrace(PTRACE_SETREGS, state->pid, 0, &regs);
 
       // Set to original data and move one step
-      breakfast_disable(pid, last_break);
+      breakfast_disable(state->pid, last_break);
 
       // TODO: Reset trap at address if we want to break there again!
 
-      ptrace(PTRACE_CONT, pid, 0, 0);
+      ptrace(PTRACE_CONT, state->pid, 0, 0);
     }
-
   }
 
   printf("malloc_tracer: All done!\n");
   free(main_break);
   free(breakpoints);
-  free(addrs);
 
   return 0;  
 }
 
-int single_injection_run(args_t *args, state_t *state) {
-
-  if (args->r_type == r_syscall) {
-    return single_inject_run_syscall(args, state);
-  }
-  return single_inject_run_fn(args, state);
-}
-
 /* Run injections progressing from faulting the first syscall, to the second, third, etc... until 
    the runs have faulted every syscall in the execution once. */
-int full_injection_run(args_t *args, state_t *state) {
+int full_injection_run_syscall(args_t *args, state_t *state) {
   long long int current_skip = 0;
   
   int res = 0;
@@ -405,7 +386,7 @@ int full_injection_run(args_t *args, state_t *state) {
     args->num_ops = current_skip;
     state_reset(state);
 
-    res = single_injection_run(args, state);
+    res = single_injection_run_syscall(args, state);
     current_skip++;
   }
   return res;
@@ -414,11 +395,11 @@ int full_injection_run(args_t *args, state_t *state) {
 /* Run injections progressing from faulting the first syscall to the second, third, etc... until
    either all syscall in the execution have been faulted or all syscalls up to the input num_ops have been 
    faulted, whichever comes first. */
-int multi_injection_run(args_t *args, state_t *state) {
+int multi_injection_run_syscall(args_t *args, state_t *state) {
   for (long long int i = 0; i <= args->num_ops; i++) {
     state_reset(state);
 
-    int res = single_injection_run(args, state);
+    int res = single_injection_run_syscall(args, state);
     if (res) {
       // End early if an error w.r.t the injector's end occurs
       // or we reach past the end of the executable.
@@ -444,12 +425,21 @@ int main(int argc, char *argv[]) {
 
   // Dispatch the run(s).
   int rval = 0;
-  if (args->mode == run_all) {
-    rval = full_injection_run(args, state);
-  } else if (args->mode == run_n) {
-    rval = multi_injection_run(args, state);
+
+  if (args->r_type == r_syscall) {
+    if (args->mode == run_all) {
+      rval = full_injection_run_syscall(args, state);
+    } else if (args->mode == run_n) {
+      rval = multi_injection_run_syscall(args, state);
+    } else {
+      rval = single_injection_run_syscall(args, state);
+    }
   } else {
-    rval = single_injection_run(args, state);
+    rval = 0;
+    for (int i = 0; i < state->n_functions; i ++) {
+      rval = single_injection_run_fn (args, state, i);
+      if (rval) break;
+    }
   }
 
   // Free dynamic memory used for syscall numbers and injected values.

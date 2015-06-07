@@ -2,10 +2,10 @@ CC = gcc
 
 CFLAGS = -std=gnu99 -static
 
-INCLUDES = -Iinclude
+INCLUDES = -Iinclude 
 
 # Other C source files for injector
-SRCS = src/injector.c src/state.c src/argparse.c src/addr_utils.c
+SRCS = src/injector.c src/state.c src/argparse.c src/addr_utils.c src/breakfast.c
 
 MAIN = injector
 
