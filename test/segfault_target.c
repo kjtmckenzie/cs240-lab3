@@ -1,3 +1,13 @@
+/*
+ * segfault_target.c
+ *
+ * Dereferences a NULL pointer, causing a segfault. Used to test backtrace
+ * functionality.
+ *
+ * How to use:
+ *   $ bin/backtrace_sample bin/segfault_target
+ */
+
 #include <sys/ptrace.h>
 #include <sys/types.h>
 #include <sys/wait.h>
