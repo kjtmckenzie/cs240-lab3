@@ -82,10 +82,10 @@ static bool parse_syscalls(args_t *args, char *argv[]) {
   if (!strcmp(argv[SYSCALLS], "-1")) {
     // No syscalls will be faulted
     args->n_syscalls = 0;
+    args->r_type = r_function;
     return true;
   }
 
-  // Set runtype to syscalls - may get overwritten by parse_functions later!
   args->r_type = r_syscall;
 
   int sys_buf[MAX_SYSCALLS];
@@ -144,6 +144,11 @@ static bool parse_functions(args_t *args, char *argv[]) {
     // No functions will be faulted
     args->n_functions = 0;
     return true;
+  } else if (args->r_type == r_syscall) {
+    // TODO: injector currently only supports faulting syscalls OR functions; not both simultaneously!
+    fprintf(stderr, "Error: injector does not yet support simultaneous function and syscall interception.\n");
+    fprintf(stderr, "\tOne of \"syscalls\" and \"functions\" must be -1.\n");
+    exit(1);
   }
 
   args->r_type = r_function;

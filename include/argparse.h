@@ -26,6 +26,7 @@ struct injector_args {
     char **fn_names;        /* Array of library function calls to intercept */
     int *fn_retvals;        /* Array of return values for intercepted functions */
 
+    /* Both syscalls and functions */
     bool fail_on_entry;     /* True to fail on entry; false to fails on exit */
     bool follow_clones;     /* True to follow clones/forks creates by the traced process. */
     bool fail_only_dirs;    /* Specific to FS calls: true to only fail syscalls to directories. */
