@@ -5,7 +5,7 @@
 #include <sys/user.h>
 #include <sys/reg.h>
 #include "breakfast.h"
-#include "addr_utils.h"
+#include "utils.h"
 #include "argparse.h"
 #include "backtrace.h"
 

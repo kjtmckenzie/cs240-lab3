@@ -1,4 +1,5 @@
-/* state.c
+/* 
+ * state.c
  *
  * Utilities for managing and passing around injector state.
  */

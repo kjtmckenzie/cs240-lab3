@@ -9,7 +9,7 @@ struct backtracer *backtrace_init(const char *target, pid_t pid);
 void backtrace_execute(struct backtracer *bt);
 void backtrace_destroy(struct backtracer *bt);
 
-// TODO: remove these once test_parent no longer relies on them
+// TODO: remove these once backtrace_sample no longer uses them directly
 
 /**
  * Parameter:

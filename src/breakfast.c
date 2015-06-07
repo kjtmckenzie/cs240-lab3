@@ -1,4 +1,5 @@
-/* breakfast.c
+/* 
+ * breakfast.c
  *
  * ptrace breakpoint implementation, borrowed & extended from :
  * http://mainisusuallyafunction.blogspot.ca/2011/01/implementing-breakpoints-on-x86-linux.html

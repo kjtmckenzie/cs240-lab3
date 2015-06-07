@@ -1,3 +1,10 @@
+/*
+ * malloc_tracer.c
+ *
+ * Not part of the main injector: a driver to test our interception of
+ * libc function calls, like malloc().
+ */
+
 #define _XOPEN_SOURCE 500
 #define _GNU_SOURCE
 
@@ -14,7 +21,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <stdbool.h>
-#include "addr_utils.h"
+#include "utils.h"
 #include "breakfast.h"
 
 #define BUFLEN 4096

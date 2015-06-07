@@ -1,3 +1,13 @@
+/*
+ * backtrace_sample.c
+ *
+ * Not part of the main injector, this is a simple driver to exercise the
+ * backtracing functionality in backtrace.[c,h].
+ *
+ * How to use:
+ *   $ bin/backtrace_sample bin/segfault_target
+ */
+
 #include <sys/ptrace.h>
 #include <sys/types.h>
 #include <sys/wait.h>

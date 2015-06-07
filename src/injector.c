@@ -1,3 +1,9 @@
+/*
+ * injector.c
+ *
+ * The fault injector itself.
+ */
+
 #include <sys/ptrace.h>
 #include <sys/types.h>
 #include <sys/wait.h>

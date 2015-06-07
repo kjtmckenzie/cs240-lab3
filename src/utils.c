@@ -1,14 +1,18 @@
-/* addr_utils.c
+/* 
+ * utils.c
  *
- * Helpers to read either the address of a function in a target executable,
- * or find all of the sites where that function is called.
+ * Miscellaneous helper utilities that don't revolve around a central struct,
+ * like a "state_t", "args_t", or "struct backtracer".
+ *
+ * Currently has helpers for finding function definitions and function call
+ * sites in a target process.
  */
 
 #include <unistd.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "addr_utils.h"
+#include "utils.h"
 
 #define BUFLEN 4096
 

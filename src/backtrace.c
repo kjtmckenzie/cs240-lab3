@@ -1,3 +1,11 @@
+/*
+ * backtrace.c
+ *
+ * Read the function table of a target process and perform a simple stack
+ * crawl to print a backtrace. Pretty brittle to compiler quirks (requires
+ * frame pointers, for example), but it works.
+ */
+
 #include <sys/ptrace.h>
 #include <sys/types.h>
 #include <sys/wait.h>

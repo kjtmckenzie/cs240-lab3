@@ -1,5 +1,5 @@
-#ifndef _ADDR_UTILS_H
-#define _ADDR_UTILS_H
+#ifndef _UTILS_H
+#define _UTILS_H
 
 // It doesn't make sense to dereference target addresses in the tracer;
 // this typedef tries to remind us of that, syntactically

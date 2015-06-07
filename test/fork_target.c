@@ -1,4 +1,10 @@
-// target.c
+/*
+ * fork_target.c
+ *
+ * forks twice to create child and grandchild processes. Used to test that
+ * the injector can follow fork()s correctly, if desired.
+ */
+
 #include <stdio.h>
 #include <unistd.h>
 
