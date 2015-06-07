@@ -19,7 +19,7 @@ int main(int argc, char *argv[]) {
   int fntab_size = 0;
 
   const char *target = argv[1];
-  finfo *fntab = read_symbol_table(target, &fntab_size);
+  struct fn_info *fntab = read_symbol_table(target, &fntab_size);
 
   if(!pid) {
     ptrace(PTRACE_TRACEME, 0, 0, 0);

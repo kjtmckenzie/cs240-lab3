@@ -13,7 +13,8 @@
 #include "backtrace.h"
 
 #define BUFLEN 4096
-#define FLIST_SIZE 1000
+// TODO: look into a more robust way to do this
+#define FLIST_SIZE 10000
 
 // Function table entry
 struct fn_info {
@@ -59,7 +60,7 @@ static int addr_in_range(const void *one, const void *two) {
  *   size:   the pointer of integer. After execution, 
  *           this will store number of elements in function table.
  */
-static struct fn_info *read_symbol_table(const char *target, int *size) {
+struct fn_info *read_symbol_table(const char *target, int *size) {
   char buf[BUFLEN];
   memset(buf, 0, BUFLEN);
   snprintf(buf, BUFLEN - 4, "readelf -s %s", target);
@@ -101,7 +102,7 @@ static struct fn_info *read_symbol_table(const char *target, int *size) {
       tok = strtok(NULL, " ");
     }
 
-    if(count == 1000) break; // Too many functions. Maybe need fix?
+    if(count == FLIST_SIZE) break; // Too many functions. Maybe need fix?
   }
 
   qsort(flist, count, sizeof(struct fn_info), finfo_cmp);
@@ -121,6 +122,7 @@ struct bt_entry *get_bt_info_from_addr(struct fn_info *fntab, int size, void *ad
   temp.addr = addr;
 
   struct fn_info *curr_fn = bsearch(&temp, fntab, size, sizeof(struct fn_info), addr_in_range);
+  if(!curr_fn) return NULL;
 
   struct bt_entry *new_btinfo = (struct bt_entry *)malloc(sizeof(struct bt_entry)); 
   new_btinfo->offset = addr - curr_fn->addr;
@@ -147,15 +149,15 @@ void execute_backtrace(struct fn_info *fntab, int size, pid_t pid) {
 
   while(rbp) {
     struct bt_entry *curr_stack = get_bt_info_from_addr(fntab, size, rip);
-    fprintf(stderr, " ->in \"%s\" at offset (0x%x)\n", curr_stack->name, curr_stack->offset);
+    if(!curr_stack) break;
+    fprintf(stderr, " ->in \"%s\" at offset (0x%x) on address (%p)\n", 
+                   curr_stack->name, curr_stack->offset, rip);
 
     rip = (void *)ptrace(PTRACE_PEEKTEXT, pid, (void *)((char *)rbp + sizeof(void *)), 0);
     rbp = (void *)ptrace(PTRACE_PEEKTEXT, pid, rbp, 0);
 
     free(curr_stack);
   }
-
-  return;
 }
 
 /**
