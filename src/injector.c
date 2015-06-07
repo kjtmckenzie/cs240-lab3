@@ -448,7 +448,6 @@ int main(int argc, char *argv[]) {
 
   // Dispatch the run(s).
   int rval = 0;
-
   if (args->r_type == r_syscall) {
     if (args->mode == run_all) {
       rval = full_injection_run_syscall(args, state);

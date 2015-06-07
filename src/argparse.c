@@ -193,7 +193,7 @@ static bool parse_functions(args_t *args, char *argv[]) {
     fprintf(stderr, "parse_functions: Failed to allocate memory for function return values\n");
     return false;
   }
-  memcpy(args->fn_names, fn_buf, sizeof(int) * n_functions);
+  memcpy(args->fn_names, fn_buf, sizeof(char*) * n_functions);
   memcpy(args->fn_retvals, ret_buf, sizeof(long long int) * n_retvals);
 
   args->n_functions = n_functions;
