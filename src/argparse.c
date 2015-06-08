@@ -26,9 +26,10 @@
 #define FOLLOW_CLONES 6
 #define ONLY_DIRS     7
 #define AFTER_MAIN    8
-#define RUN_MODE      9
-#define NUM_OPS      10
-#define TARGET       11
+#define BACKTRACE     9
+#define RUN_MODE      10
+#define NUM_OPS       11
+#define TARGET        12
 
 /**
  * Prints the expected argument structure and order.
@@ -57,6 +58,8 @@ void argparse_usage() {
   printf("               0 to have filesystem-based syscalls fail on any ops when scheduled.\n");
   printf("    after_main: 1 to only begin faulting after entering main() of the target\n");
   printf("                0 to begin faulting immediately\n");
+  printf("    perform_backtrace: 1 to construct a backtrace on child process termination by singal\n");
+  printf("                       0 to not construct any backtrace\n");
   printf("    run_mode: Controls how faults are injected from run to run. Valid modes are:\n");
   printf("              \"skip\": Injector will skip \'num\' syscalls before injecting.\n");
   printf("              \"run\": Injector runs \'num\' times. Run i skips the first i syscalls before injection.\n");
@@ -66,9 +69,9 @@ void argparse_usage() {
   printf("\n");
   printf("Examples:\n");
   printf("    Fault getuid() to return -1:\n");
-  printf("      $ ./bin/injector 102 -1 -1 0 1 0 0 0 skip 0 'bin/getuid_target'\n");
+  printf("      $ ./bin/injector 102 -1 -1 0 1 0 0 0 1 skip 0 'bin/getuid_target'\n");
   printf("    Fault malloc() to return NULL:\n");
-  printf("      $ ./bin/injector -1 -1 malloc 0 1 0 0 1 skip 0 'bin/malloc_target'\n");
+  printf("      $ ./bin/injector -1 -1 malloc 0 1 0 0 1 1 skip 0 'bin/malloc_target'\n");
   printf("\n");
 }
 
@@ -225,6 +228,12 @@ static bool parse_flags(args_t *args, char *argv[]) {
     return false;
   }
   args->after_main = atoi(argv[AFTER_MAIN]);
+
+  if (strcmp(argv[BACKTRACE], "0") && (strcmp(argv[BACKTRACE], "1"))) {
+    fprintf(stderr, "parse_flags: Expected 0 or 1 for perform_backtrace, got %s\n", argv[BACKTRACE]);
+    return false;
+  }
+  args->run_backtrace = atoi(argv[BACKTRACE]);
 
   return true;
 }

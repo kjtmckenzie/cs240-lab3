@@ -31,6 +31,7 @@ struct injector_args {
     bool follow_clones;     /* True to follow clones/forks creates by the traced process. */
     bool fail_only_dirs;    /* Specific to FS calls: true to only fail syscalls to directories. */
     bool after_main;        /* True to begin faulting only after main() */
+    bool run_backtrace;     /* True to construct a backtrace if child process fails */
 
     injector_mode_t mode;   /* "Skip N", "Run N", or "Run Full" injector mode */
     long long int num_ops;  /* Number of skipped ops, or runs */

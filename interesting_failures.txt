@@ -10,6 +10,9 @@
 #Can show that it definitely catches application-specific responses to syscall failures:
 ./tracer_sample 9,12 -12,-12 0 -s 8 make
 
-#If the memory stops coming at calls between numbers 42 and the low 70s, vim dies rather spectacularly messily (and locks up my terminal...)
-#In particular, it appears that vim attempts co continue executing after running out of memory, even if what it's currently doing is parsing metadata (like its filetype information) leading to awkward partial parse messages like 'endif without if' and 'endprogram without program' all over. In worse cases it seems to fail partway through creating a TUI window and then the terminal seems to be completely locked up.
-./tracer_sample 9,12 -12,-12 0 -s 42 "vim vimtest.txt"
+#If the memory stops coming at calls between 60-100ish, vim dies with a segfault (possibly leaving the terminal messed up).
+./tracer_sample 9,12 -12,-12 -1 0 1 0 0 0 skip 60 'vim vimtest.txt'
+
+#Infinite python error loop!
+./bin/injector 9,12 -12,-12 -1 0 1 0 0 0 skip 100 '/usr/bin/python'
+#After starting python like this, enter help, then help() to enter interactive help, then exit it with ctrl-D.
