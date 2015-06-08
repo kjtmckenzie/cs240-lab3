@@ -92,7 +92,11 @@ static void start_target(args_t *args, state_t *state, const char *target) {
   if ( !pid ) {
     debug("start_target: child now execing '%s'...\n", target);
     ptrace( PTRACE_TRACEME, 0, 0, 0 );
-    execvp( target, args->target_argv );
+    if(execvp( target, args->target_argv ) < 0) {
+      debug("start_target: child exec fails.\n");
+      exit(-1);
+    }
+
   } else {
     state->pid = pid;
     // Print status message concerning the run.
@@ -268,9 +272,6 @@ int single_injection_run_syscall(args_t *args, state_t *state) {
   // then find out what happened
   size_t loop_counter = 0; 
   while ( 1 ) {
-    // FIXME: PTRACE_SYSCALL makes everything look like a SIGTRAP and breaks
-   // backtrace functionality! Is there a way to recover the original signal #?
-   // Using PTRACE_CONT makes the backtracing work, but breaks syscall interception...
     ptrace( PTRACE_SYSCALL, state->pid, 0, 0 );
     wait( &(state->status) );
     fflush(stdout);

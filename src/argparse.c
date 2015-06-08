@@ -265,7 +265,7 @@ int parse_target_command(char* cmd, char** target_name, char*** target_args) {
     i++;
   }
 
-  *target_args = malloc(sizeof(char*) * i);
+  *target_args = malloc(sizeof(char*) * (i+1));
   memcpy(*target_args, targ_buf, sizeof(char*) * i);
 
   return i;
@@ -299,12 +299,12 @@ static bool parse_target(args_t *args, int argc, char *argv[]) {
     args->target_argc++;
   }
 
-  if (!(args->target_argv = malloc(sizeof(char*) * args->target_argc))) {
+  if (!(args->target_argv = malloc(sizeof(char*) * (args->target_argc + 1)))) {
     fprintf(stderr, "parse_target: malloc failed for args->target_argv!\n");
     return false;
   }
   memcpy(args->target_argv, target_argv, sizeof(char*) * args->target_argc);
-
+  args->target_argv[args->target_argc] = 0;
   return true;
 }
 
