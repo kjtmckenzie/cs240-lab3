@@ -11,6 +11,8 @@
 #include "argparse.h"
 #include "state.h"
 
+#define MAX_TARGET_LEN 1024
+
 struct list_entry {
     int id;         
     struct list_entry * next;
@@ -81,7 +83,17 @@ bool state_is_dir(state_t *state, int fd) {
 }
 
 void state_prep_backtrace(state_t *state, const char *target, pid_t pid) {
-  state->bt = backtrace_init(target, pid);
+  char *binary_target = (char *)malloc(MAX_TARGET_LEN);
+  char *link = (char *)malloc(20);
+
+  sprintf(link, "/proc/%d/exe", pid);
+  if(readlink(link, binary_target, MAX_TARGET_LEN) == -1) {
+    fprintf(stderr, "stats_prep_backtrace:Cannot read binary file for %s\n", target);
+  }
+  state->bt = backtrace_init(binary_target, pid);
+
+  free(link);
+  free(binary_target);
 }
 
 // TODO: this is not 100% complete: needs dir_fds and fn_call_addrs

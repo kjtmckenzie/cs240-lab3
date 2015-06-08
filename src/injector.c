@@ -98,7 +98,7 @@ static void start_target(args_t *args, state_t *state, const char *target) {
     }
     printf("with num_to_skip %lld\n", args->num_ops);
 
-    state_prep_backtrace(state, target, pid);
+    //state_prep_backtrace(state, target, pid);
   }
 }
 
@@ -230,6 +230,7 @@ int single_injection_run_syscall(args_t *args, state_t *state) {
   start_target(args, state, target);
   ptrace( PTRACE_SYSCALL, state->pid, 0, 0 );
   wait( &(state->status) );
+  state_prep_backtrace(state, target, state->pid);
 
   // The primary tracer loop: register PTRACE_SYSCALL, wait for signal, and
   // then find out what happened
@@ -240,8 +241,8 @@ int single_injection_run_syscall(args_t *args, state_t *state) {
     fflush(stdout);
 
     if ( WIFEXITED( state->status ) ) {
-      // If the tracee has exited, don't continue tracing
-      backtrace_execute(state->bt);
+      // If the tracee has exited, don't continue tracing 
+      //backtrace_execute(state->bt);
       break;
     }
 
