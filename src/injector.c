@@ -282,12 +282,14 @@ int single_injection_run_syscall(args_t *args, state_t *state) {
       break;
     }
 
+    
     int sig  = 0;
     if( WIFSTOPPED( state->status) && (sig = WSTOPSIG( state-> status)) != SIGTRAP) {
       psignal(sig, "Ptrace got signal");
       backtrace_execute(state->bt);
-      exit(-1);
+      //exit(-1);
     }
+    
 
     // Enforce a maximum # of iterations in case tracee never terminates
     loop_counter ++; 
