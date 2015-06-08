@@ -86,10 +86,18 @@ struct fn_info *read_symbol_table(const char *target, int *size) {
   size_t len = 0;
   ssize_t read;
 
-  // Skip boilerplate
-  read = getline(&line, &len, fp);
-  read = getline(&line, &len, fp);
-  read = getline(&line, &len, fp);
+  int flag = 0;
+  while((read = getline(&line, &len, fp)) != -1) {
+    if(strstr(line, "Symbol table '.symtab'")) {
+      flag = 1;
+      break; 
+    }
+  }
+
+  if(!flag) {
+    pclose(fp);
+    return NULL;
+  }
 
   while ((read = getline(&line, &len, fp)) != -1) {
     char *tok = strtok(line, " ");
@@ -120,6 +128,7 @@ struct fn_info *read_symbol_table(const char *target, int *size) {
 
   *size = count;
 
+  pclose(fp);
   return return_list;
 }
 
@@ -147,6 +156,9 @@ struct bt_entry *get_bt_info_from_addr(struct fn_info *fntab, int size, void *ad
  */
 void execute_backtrace(struct fn_info *fntab, int size, pid_t pid) {
 
+  if(!fntab)
+    fprintf(stderr, "backtrace_execute: No symbol table, only addresses will be shown.\n");
+
   struct user_regs_struct regs;
   void *rbp, *rip;
 
@@ -155,16 +167,20 @@ void execute_backtrace(struct fn_info *fntab, int size, pid_t pid) {
 
   fprintf(stderr, "Backtrace starts at instruction (%p)\n", rip);
 
-  while(rbp) {
-    struct bt_entry *curr_stack = get_bt_info_from_addr(fntab, size, rip);
-    if(!curr_stack) break;
-    fprintf(stderr, " ->in \"%s\" at offset (0x%x) on address (%p)\n", 
-                   curr_stack->name, curr_stack->offset, rip);
+  while(rbp && (long long)rip != -1) {    
+    if(fntab) {
+      struct bt_entry *curr_stack = get_bt_info_from_addr(fntab, size, rip);
+      if(!curr_stack) break;
+      fprintf(stderr, " ->in \"%s\" at offset (0x%x) on address (%p)\n", 
+                     curr_stack->name, curr_stack->offset, rip);
+      free(curr_stack);
+
+    } else {
+      fprintf(stderr, "	->on address (%p)\n", rip);
+    }
 
     rip = (void *)ptrace(PTRACE_PEEKTEXT, pid, (void *)((char *)rbp + sizeof(void *)), 0);
     rbp = (void *)ptrace(PTRACE_PEEKTEXT, pid, rbp, 0);
-
-    free(curr_stack);
   }
 }
 

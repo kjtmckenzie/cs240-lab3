@@ -96,13 +96,11 @@ static void start_target(args_t *args, state_t *state, const char *target) {
   } else {
     state->pid = pid;
     // Print status message concerning the run.
-    debug("\nRunning ptrace injector on %s for syscalls: ", target);
+    debug("Running ptrace injector on %s for syscalls: ", target);
     for (int i = 0; i < args->n_syscalls; i++) {
-      debug("%d, ", args->syscall_nos[i]);
+      fprintf(stderr, "%d, ", args->syscall_nos[i]);
     }
-    debug("with num_to_skip %lld\n", args->num_ops);
-
-    //state_prep_backtrace(state, target);
+    fprintf(stderr, "with num_to_skip %lld\n", args->num_ops);
   }
 }
 
@@ -246,6 +244,7 @@ void run_until_main (const char* target, state_t *state,
 /* Perform a single run of tracing, skipping the first num_to_skip syscalls and injecting a fault in all those 
    that follow. */
 int single_injection_run_syscall(args_t *args, state_t *state) {
+  fprintf(stderr, "\n");
   debug("single_injection_run_syscall: beginning\n");
   fflush(stdout);
 
@@ -276,10 +275,17 @@ int single_injection_run_syscall(args_t *args, state_t *state) {
     wait( &(state->status) );
     fflush(stdout);
 
-    if ( WIFEXITED( state->status ) ) {
-      // If the tracee has exited, don't continue tracing 
-      //backtrace_execute(state->bt);
+    if ( WIFEXITED( state->status ) || WIFSIGNALED(state->status)) {
+      // If the tracee has exited, don't continue tracing
+      // NOTE: no need for backtrace.... process already exitted.
       break;
+    }
+
+    int sig  = 0;
+    if( WIFSTOPPED( state->status) && (sig = WSTOPSIG( state-> status)) != SIGTRAP) {
+      psignal(sig, "Ptrace got signal");
+      backtrace_execute(state->bt);
+      exit(-1);
     }
 
     // Enforce a maximum # of iterations in case tracee never terminates

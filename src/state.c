@@ -83,17 +83,14 @@ bool state_is_dir(state_t *state, int fd) {
 }
 
 void state_prep_backtrace(state_t *state, const char *target) {
-  char *binary_target = (char *)malloc(MAX_TARGET_LEN);
-  char *link = (char *)malloc(20);
+  char binary_target[MAX_TARGET_LEN];
+  char link[20];
 
   sprintf(link, "/proc/%d/exe", state->pid);
   if(readlink(link, binary_target, MAX_TARGET_LEN) == -1) {
     fprintf(stderr, "stats_prep_backtrace:Cannot read binary file for %s\n", target);
   }
-  state->bt = backtrace_init(binary_target, state->pid);
-
-  free(link);
-  free(binary_target);
+  state->bt = backtrace_init(link, state->pid);
 }
 
 // TODO: this is not 100% complete: needs dir_fds and fn_call_addrs
