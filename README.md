@@ -122,3 +122,6 @@ doesn't have any notion of a timeout, so if the tracee gets into a nonresponsive
 state, the whole injector will hang. Techniques exist for getting timeout-like 
 functionality from `waitpid()`; we could use some of them in the main tracer 
 loop in `injector.c`.
+
+7. The 'skip N' behavior hasn't been plumbed through to function injection, 
+only to syscalls. This should be trivial to extend.
