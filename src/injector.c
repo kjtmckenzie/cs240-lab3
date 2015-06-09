@@ -271,8 +271,9 @@ int single_injection_run_syscall(args_t *args, state_t *state) {
   // The primary tracer loop: register PTRACE_SYSCALL, wait for signal, and
   // then find out what happened
   size_t loop_counter = 0; 
+  int sig = 0;
   while ( 1 ) {
-    ptrace( PTRACE_SYSCALL, state->pid, 0, 0 );
+    ptrace( PTRACE_SYSCALL, state->pid, 0, sig );
     wait( &(state->status) );
     fflush(stdout);
 
@@ -283,15 +284,15 @@ int single_injection_run_syscall(args_t *args, state_t *state) {
     }
 
     
-    int sig  = 0;
-    if( WIFSTOPPED( state->status) && (sig = WSTOPSIG( state-> status)) != SIGTRAP) {
+    if( WIFSTOPPED( state->status) && ((sig = WSTOPSIG( state-> status)) != SIGTRAP) && (sig != SIGIO)) {
       psignal(sig, "Ptrace got signal");
       if (args->run_backtrace) {
 	backtrace_execute(state->bt);
       }
-      //exit(-1);
+      continue;
     }
     
+    sig = 0;
 
     // Enforce a maximum # of iterations in case tracee never terminates
     loop_counter ++; 
