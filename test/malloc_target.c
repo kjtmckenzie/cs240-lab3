@@ -4,9 +4,6 @@
  * Dynamically allocates a buffer and writes to it without considering the
  * return value. Used to test interception of libc function calls.
  *
- * TODO: need example cmdline here
- * How to use:
- *   $ bin/injector 
  */
 
 #include <stdio.h>
