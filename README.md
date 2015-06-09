@@ -39,11 +39,11 @@ Once you have a `ptrace`-capable machine, setup is straightforward:
 
 Run the injector on `test/getuid_target.c`, faulting the `getuid()` syscall to return -1:
 
-    $ ./bin/injector 102 -1 -1 0 1 0 0 0 skip 0 'bin/getuid_target'
+    $ ./bin/injector 102 -1 -1 0 1 0 0 0 1 skip 0 'bin/getuid_target'
 
 Run the injector on `test/malloc_target.c`, faulting `malloc()` to return `NULL`:
 
-    $ ./bin/injector -1 -1 malloc 0 1 0 0 1 skip 0 'bin/malloc_target'
+    $ ./bin/injector -1 -1 malloc 0 1 0 0 1 1 skip 0 'bin/malloc_target'
 
 Demonstrate backtrace functionality:
 
@@ -53,7 +53,7 @@ Demonstrate backtrace functionality:
 
 The syntax for running the injector is:
 
-`$ bin/injector syscalls sys_retvals functions fn_retvals fail_on_entry follow_clones only_dirs after_main run_mode num target`
+`$ bin/injector syscalls sys_retvals functions fn_retvals fail_on_entry follow_clones only_dirs after_main backtrace run_mode num target`
 
 Here is the meaning of each argument:
 
@@ -80,7 +80,10 @@ if only calls to directories should be faulted, or 0 to fault all such calls.
 6. **after_main:** 1 if fault injection should only begin after control reaches
  `main()` in the target, or 0 to begin faulting immediately
 
-7. **run_mode, num:** **run_mode** is one of `skip`, `run`, and `full`, and **num** 
+7. **backtrace:** 1 to print a backtrace when something "interesting" happens,
+or 0 for no backtrace
+
+8. **run_mode, num:** **run_mode** is one of `skip`, `run`, and `full`, and **num** 
 is an integer.
   - In `skip` mode, the first **num** calls are skipped before injection begins
   - In `run` mode, the injector runs **num* times. Run _i_ skips the first _i_
@@ -88,7 +91,7 @@ calls before injection.
   - In `full` mode, the injector runs repeatedly in `skip` mode, incrementing **num**
 each iteration until it is so high that no calls are faulted.
 
-8. **target:** The path to the target binary, and any command line arguments, 
+9. **target:** The path to the target binary, and any command line arguments, 
 as a single strip. Ex: `'/usr/bin/myProgram arg1 arg2'`
 
 #### Known Issues & Limitations
